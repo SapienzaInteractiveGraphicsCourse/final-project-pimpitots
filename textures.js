@@ -7,6 +7,8 @@
  *
  * Exported:
  *   generateTextures() → TextureMap
+ *     .createBallTex(number, color) → THREE.CanvasTexture
+ *     .ball.roughnessMap            → THREE.CanvasTexture (shared by all balls)
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
@@ -15,7 +17,7 @@ import * as THREE from 'three';
  * Generates all textures used by the room and table surfaces.
  * Returns a plain object keyed by surface type. Each entry may have:
  * map, normalMap, roughnessMap, aoMap.
- * @returns {{ felt: {map, normalMap, roughnessMap}, wood: {map, normalMap, roughnessMap}, floor: {map, normalMap, roughnessMap, aoMap}, wall: {map} }}
+ * @returns {{ felt: {map, normalMap, roughnessMap}, wood: {map, normalMap, roughnessMap}, floor: {map, normalMap, roughnessMap, aoMap}, wall: {map}, ball: {roughnessMap}, createBallTex: Function }}
  */
 export function generateTextures() {
   // ── Felt (table surface) ────────────────────────────────────────────────
@@ -37,6 +39,12 @@ export function generateTextures() {
   const floorRoughTex   = floorLoader.load('./textures/floor/roughness.jpg');
   const floorAOTex      = floorLoader.load('./textures/floor/ao.jpg');
   floorColorTex.encoding = THREE.sRGBEncoding; // color map only — normal/roughness/AO stay linear
+
+  // ── Ball ─────────────────────────────────────────────────────────────────
+  // createBallTex is a per-ball factory (called once per ball, not shared).
+  // ballRoughTex is a single shared roughness map for all balls.
+  const createBallTex = (number, color) => _createBallTexture(number, color, 256);
+  const ballRoughTex  = _createBallRoughnessMap(256);
 
   // ── Wall ────────────────────────────────────────────────────────────────
   const wallColorTex    = _createWallTexture(512);
@@ -60,10 +68,12 @@ export function generateTextures() {
   });
 
   return {
-    felt:  { map: feltColorTex,  normalMap: feltNormalTex,  roughnessMap: feltRoughTex  },
-    wood:  { map: woodColorTex,  normalMap: woodNormalTex,  roughnessMap: woodRoughTex  },
-    floor: { map: floorColorTex, normalMap: floorNormalTex, roughnessMap: floorRoughTex, aoMap: floorAOTex },
-    wall:  { map: wallColorTex },
+    felt:         { map: feltColorTex,  normalMap: feltNormalTex,  roughnessMap: feltRoughTex  },
+    wood:         { map: woodColorTex,  normalMap: woodNormalTex,  roughnessMap: woodRoughTex  },
+    floor:        { map: floorColorTex, normalMap: floorNormalTex, roughnessMap: floorRoughTex, aoMap: floorAOTex },
+    wall:         { map: wallColorTex },
+    ball:         { roughnessMap: ballRoughTex },
+    createBallTex,
   };
 }
 
@@ -160,6 +170,77 @@ function _createFeltRoughnessMap(size) {
   const d   = img.data;
   for (let i = 0; i < size * size; i++) {
     const v = Math.floor(200 + Math.random() * 40); // rough: 0.78–0.94
+    d[i*4]   = v;
+    d[i*4+1] = v;
+    d[i*4+2] = v;
+    d[i*4+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return new THREE.CanvasTexture(canvas);
+}
+
+// ── Ball texture: solid color + number label + stripe for balls 9–15 ─────────
+/**
+ * Creates a canvas texture for one pool ball.
+ * Balls 9–15 get a white stripe band across the equator.
+ * Ball 0 (cue ball) gets no number label.
+ * @param {number} number  - 0 = cue ball, 1–15 = numbered balls
+ * @param {string} color   - CSS color for the ball's base
+ * @param {number} size    - canvas side length in pixels
+ */
+function _createBallTexture(number, color, size) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Base color fill
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, size, size);
+
+  // Stripe band for striped balls (9–15): white horizontal band in the middle third
+  if (number >= 9 && number <= 15) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, Math.floor(size * 0.33), size, Math.floor(size * 0.34));
+  }
+
+  // Number label (skip cue ball)
+  if (number > 0) {
+    const fontSize = Math.floor(size * 0.38);
+    ctx.font        = `bold ${fontSize}px sans-serif`;
+    ctx.textAlign   = 'center';
+    ctx.textBaseline = 'middle';
+
+    // White circle background behind number for readability on dark balls
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, fontSize * 0.62, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#111111';
+    ctx.fillText(String(number), size / 2, size / 2 + fontSize * 0.04);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+
+// ── Ball roughness map: shiny resin base with subtle scuff variation ──────────
+/**
+ * Shared roughness map for all balls: mostly low roughness (shiny phenolic
+ * resin) with tiny random scuff specks. One texture shared to save VRAM.
+ * @param {number} size
+ */
+function _createBallRoughnessMap(size) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const d   = img.data;
+  for (let i = 0; i < size * size; i++) {
+    // Base roughness ~56 (≈0.22 in [0,1]) — shiny. Rare pixels spike to ~128 (scuff specks).
+    const isScuff = Math.random() < 0.015;
+    const v = isScuff ? Math.floor(80 + Math.random() * 80) : Math.floor(50 + Math.random() * 18);
     d[i*4]   = v;
     d[i*4+1] = v;
     d[i*4+2] = v;
