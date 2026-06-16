@@ -9,8 +9,9 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
-import { createRoom, createTable, createLamp, TABLE_SURFACE_Y } from './models.js';
+import { createRoom, createTable, createLamp, createBallMesh, TABLE_SURFACE_Y, BALL_Y } from './models.js';
 import { generateTextures } from './textures.js';
+import { BALL_RADIUS, TABLE_H } from './physics.js';
 
 // Lamp swing animation — small, subtle sway like a hanging fixture gently
 // disturbed by passing air, not a deliberately pushed pendulum. Amplitude is
@@ -19,9 +20,31 @@ import { generateTextures } from './textures.js';
 const LAMP_SWING_AMP   = 0.07; // swing amplitude in radians (~4°)
 const LAMP_SWING_SPEED = 0.7;  // swing frequency (radians/second) — ~9s full cycle
 
+// ─── Ball Colors (index 0 = cue ball, 1–15 = standard pool palette) ──────────
+const BALL_COLORS = [
+  '#F5F5F5',  // 0  cue ball (white)
+  '#F5C518',  // 1  yellow
+  '#1565C0',  // 2  blue
+  '#C62828',  // 3  red
+  '#6A1EA0',  // 4  purple
+  '#E65100',  // 5  orange
+  '#2E7D32',  // 6  green
+  '#6D1B1B',  // 7  maroon
+  '#212121',  // 8  black (8-ball)
+  '#F5C518',  // 9  yellow stripe
+  '#1565C0',  // 10 blue stripe
+  '#C62828',  // 11 red stripe
+  '#6A1EA0',  // 12 purple stripe
+  '#E65100',  // 13 orange stripe
+  '#2E7D32',  // 14 green stripe
+  '#6D1B1B',  // 15 maroon stripe
+];
+
 // ─── Globals ──────────────────────────────────────────────────────────────────
-let renderer, scene, camera, clock, lamp;
-let lampOn = true;
+let renderer, scene, camera, clock, lamp, texMap;
+let lampOn    = true;
+let ballEnvMap;            // PMREM env map — applied only to ball materials
+let balls     = [];        // [{ id, isCueBall, x, z, vx, vz, pocketed, mesh }]
 let btnLampEl;
 
 // ─── Entry Point ──────────────────────────────────────────────────────────────
@@ -70,12 +93,19 @@ function init() {
   scene.add(fillLight);
 
   // ── Textures ──
-  const texMap = generateTextures();
+  texMap = generateTextures();
 
   // ── Scene geometry ──
   createRoom(scene, texMap);
   createTable(scene, texMap);
   lamp = createLamp(scene);
+
+  // ── Environment map (IBL for ball materials only) ──
+  ballEnvMap = _buildEnvMap();
+  scene.environment = ballEnvMap;
+
+  // ── Spawn all 15 balls + cue ball ──
+  _spawnAllBalls();
 
   // ── Clock (drives the lamp swing) ──
   clock = new THREE.Clock();
@@ -135,6 +165,91 @@ function _toggleLamp() {
   lamp.light.intensity = lampOn ? lamp.light.userData.onIntensity : 0;
   lamp.bulbMesh.material.emissiveIntensity = lampOn ? 2.0 : 0; // 2.0 matches bulbMat's initial value in models.js
   btnLampEl.textContent = lampOn ? '\u{1F311} Lamp OFF' : '\u{1F315} Lamp ON';
+}
+
+// ─── Ball Spawning ─────────────────────────────────────────────────────────────
+
+/**
+ * Spawns all 15 numbered balls + cue ball (16 total).
+ * Colored balls are placed in a standard triangle rack at the far (negative-Z)
+ * side; cue ball is placed at the player side (positive-Z).
+ */
+function _spawnAllBalls() {
+  for (const b of balls) scene.remove(b.mesh);
+  balls = [];
+
+  // Triangle rack geometry
+  const dr  = BALL_RADIUS * 2;          // column step  (touching)
+  const dz  = BALL_RADIUS * Math.sqrt(3); // row step (touching)
+  const rz  = -0.5;                     // Z of the apex ball
+
+  // Build 5 rows (1+2+3+4+5 = 15 balls) numbered 1–15 in order
+  let num = 1;
+  for (let row = 0; row < 5; row++) {
+    const z = rz - row * dz;
+    for (let col = 0; col <= row; col++) {
+      const x = (col - row / 2) * dr;
+      _spawnBall(num, num, x, z, false);
+      num++;
+    }
+  }
+
+  // Cue ball on the player side
+  _spawnBall(0, 0, 0, TABLE_H / 4, true);
+}
+
+/**
+ * Creates a single ball: builds the Three.js mesh and adds it to the scene,
+ * then pushes a physics-state entry to the `balls` array.
+ * @param {number}  id        - unique ball identifier
+ * @param {number}  number    - ball number (0 = cue, 1–15 = colored)
+ * @param {number}  x         - initial X position on the table
+ * @param {number}  z         - initial Z position on the table
+ * @param {boolean} isCueBall
+ */
+function _spawnBall(id, number, x, z, isCueBall) {
+  const color = BALL_COLORS[Math.min(number, BALL_COLORS.length - 1)];
+  const mesh  = createBallMesh(color, number, texMap.createBallTex, ballEnvMap, texMap.ball.roughnessMap);
+  mesh.position.set(x, BALL_Y, z);
+  mesh.castShadow = true;
+  scene.add(mesh);
+  balls.push({ id, isCueBall, color, number, x, z, vx: 0, vz: 0, pocketed: false, mesh });
+}
+
+// ─── Environment Map ──────────────────────────────────────────────────────────
+
+/**
+ * Builds a small PMREM env map from a procedural canvas gradient.
+ * Keeps the scene mood dark (billiard room). IBL is subtle — the PointLight
+ * does the primary work; this just prevents ball specular highlights from
+ * going pitch-black in unlit directions.
+ * @returns {THREE.Texture}
+ */
+function _buildEnvMap() {
+  const canvas  = document.createElement('canvas');
+  canvas.width  = 256;
+  canvas.height = 128;
+  const ctx  = canvas.getContext('2d');
+
+  const grad = ctx.createLinearGradient(0, 0, 0, 128);
+  grad.addColorStop(0.00, '#2a2018');  // ceiling: faint warm glow from lamp above
+  grad.addColorStop(0.30, '#10100e');  // upper walls: near-black
+  grad.addColorStop(0.70, '#090810');  // lower walls: cool dark
+  grad.addColorStop(1.00, '#050408');  // floor: almost black
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 128);
+
+  const equiTex    = new THREE.CanvasTexture(canvas);
+  equiTex.encoding = THREE.sRGBEncoding;
+  equiTex.mapping  = THREE.EquirectangularReflectionMapping;
+
+  const pmrem  = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+  const envMap = pmrem.fromEquirectangular(equiTex).texture;
+  pmrem.dispose();
+  equiTex.dispose();
+
+  return envMap;
 }
 
 /**

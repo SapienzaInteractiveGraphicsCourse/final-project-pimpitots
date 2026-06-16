@@ -15,31 +15,21 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
+import { TABLE_W, TABLE_H, BALL_RADIUS, POCKET_POSITIONS } from './physics.js';
 
 // ─── Shared Scene-Geometry Constants ─────────────────────────────────────────
 export const TABLE_SURFACE_Y = 0.76; // table felt surface height in world space (table "on the floor")
+export const BALL_Y          = TABLE_SURFACE_Y + BALL_RADIUS; // ball center Y when resting on felt
 
 // Room dimensions
 const ROOM_W = 22;
 const ROOM_D = 18;
 const ROOM_H = 7.0;
 
-// Table dimensions
-const TABLE_W     = 9.0;   // table playing surface long axis  (X)
-const TABLE_H     = 4.5;   // table playing surface short axis (Z)
+// Table-model-only dimensions (physics.js owns TABLE_W / TABLE_H)
 const TABLE_LEG_H = 0.72;  // table leg height (TABLE_SURFACE_Y - table panel thickness ~0.04)
 const RAIL_H      = 0.10;  // cushion rail height above felt
 const RAIL_W      = 0.30;  // cushion rail width (inward thickness)
-
-// Pocket hole positions on the felt (4 corners + 2 middles)
-const POCKET_POSITIONS = [
-  [-TABLE_W / 2 + 0.22, -TABLE_H / 2 + 0.22],  // front-left corner  (toward -Z, -X)
-  [ TABLE_W / 2 - 0.22, -TABLE_H / 2 + 0.22],  // front-right corner
-  [-TABLE_W / 2 + 0.22,  TABLE_H / 2 - 0.22],  // back-left corner
-  [ TABLE_W / 2 - 0.22,  TABLE_H / 2 - 0.22],  // back-right corner
-  [ 0,                  -TABLE_H / 2 + 0.12],  // front-middle
-  [ 0,                   TABLE_H / 2 - 0.12],  // back-middle
-];
 
 // ─── Room ─────────────────────────────────────────────────────────────────────
 /**
@@ -245,6 +235,39 @@ function _buildRails(group, mat) {
   addRail(-(HW + RW / 2), TY, 0, RW, RH, shortLen);
   // Right short rail (x = +HW + RW/2 = +4.65)
   addRail( (HW + RW / 2), TY, 0, RW, RH, shortLen);
+}
+
+// ─── Ball Mesh Factory ────────────────────────────────────────────────────────
+/**
+ * Creates a pool ball Mesh with MeshStandardMaterial.
+ * Uses a CanvasTexture for the color/diffuse map and a shared roughness map
+ * for subtle specular variation (scuff specks under highlights).
+ *
+ * @param {string}         color         - CSS color string (e.g. '#e8d96c')
+ * @param {number}         number        - ball number (0 = cue ball)
+ * @param {Function}       createBallTex - texture factory from textures.js
+ * @param {THREE.Texture}  envMap        - optional PMREM env map for reflections
+ * @param {THREE.Texture}  roughnessMap  - shared ball roughness map
+ * @returns {THREE.Mesh}
+ */
+export function createBallMesh(color, number, createBallTex, envMap, roughnessMap) {
+  const colorTex = createBallTex(number, color);
+
+  const mat = new THREE.MeshStandardMaterial({
+    map:             colorTex,
+    roughnessMap:    roughnessMap || null,
+    roughness:       0.22,   // phenolic resin — shiny but not mirror
+    metalness:       0.0,
+    envMap:          envMap || null,
+    envMapIntensity: 0.6,
+  });
+
+  const geo  = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow    = true;
+  mesh.receiveShadow = false;
+  mesh.name = `ball_${number}`;
+  return mesh;
 }
 
 // ─── Lamp dimensions ──────────────────────────────────────────────────────
