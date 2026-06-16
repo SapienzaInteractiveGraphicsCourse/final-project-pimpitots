@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Pool Game — Interactive Graphics Project</title>
+
+  <!--
+    Three.js r128, vendored locally at ./libs/three.module.js so the project
+    is fully self-contained (no CDN dependency, works offline / from any
+    static host including GitHub Pages serving the repo root).
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./libs/three.module.js"
+    }
+  }
+  </script>
+
+  <style>
+    /* --- Reset --- */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #111;
+    }
+
+    /* --- WebGL canvas: full-viewport --- */
+    #glCanvas {
+      display: block;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <!-- Full-viewport WebGL canvas -->
+  <canvas id="glCanvas"></canvas>
+
+  <!--
+    Main entry point loaded as an ES module.
+    All JS files use `import * as THREE from 'three'` resolved via the
+    importmap above.
+  -->
+  <script type="module" src="main.js"></script>
+</body>
+</html>
