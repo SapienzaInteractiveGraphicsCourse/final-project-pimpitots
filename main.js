@@ -3,16 +3,12 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Responsibility: engine bootstrap — renderer, scene, camera, render loop.
  *
- * Currently implements the minimal setup plus the empty room. No game
- * logic, no table/balls/cue/lamp, no UI, no controls yet — those will be
- * layered on as the project grows.
- *
  * Execution flow:
  *   init() → createRoom(scene) → animate()
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
-import { createRoom } from './models.js';
+import { createRoom, TABLE_SURFACE_Y } from './models.js';
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
 let renderer, scene, camera;
@@ -29,14 +25,19 @@ function init() {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio || 1);
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
-  renderer.outputEncoding    = THREE.sRGBEncoding;
-  renderer.toneMapping       = THREE.ACESFilmicToneMapping;
+  renderer.shadowMap.enabled   = true;
+  renderer.shadowMap.type      = THREE.PCFSoftShadowMap;
+  renderer.outputEncoding      = THREE.sRGBEncoding; // correct gamma for CanvasTextures
+  renderer.toneMapping         = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.75;
 
   // ── Scene ──
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x1a1a22);
+  // Fog starts well within the room (8) so the back wall/corners visibly
+  // recede into haze, blending toward the background color (30) — gives the
+  // impression the space extends further than the room's actual bounds.
+  scene.fog = new THREE.Fog(0x1a1a22, 8, 30);
 
   // ── Camera ──
   // Positioned above the room's ceiling but within its X/Z footprint: this
@@ -47,17 +48,14 @@ function init() {
   const aspect = window.innerWidth / window.innerHeight;
   camera = new THREE.PerspectiveCamera(52, aspect, 0.1, 100);
   camera.position.set(0, 14, 5);
-  camera.lookAt(0, 0, 0);
+  camera.lookAt(0, TABLE_SURFACE_Y, 0);
 
   // ── Lights ──
-  // Assumption: placeholder lighting only, just enough to see the room
-  // shell. Replaced/extended once the lamp (point light) is added in a
-  // later step.
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
+  const ambientLight = new THREE.AmbientLight(0x404060, 0.25); // TUNE: higher → softer/lighter shadows; lower → harsher/darker
   scene.add(ambientLight);
 
-  const fillLight = new THREE.DirectionalLight(0xffffff, 0.7);
-  fillLight.position.set(-6, 10, 4);
+  const fillLight = new THREE.DirectionalLight(0x8090ff, 0.05); // soft blue fill from side
+  fillLight.position.set(-8, 6, 4);
   scene.add(fillLight);
 
   // ── Scene geometry ──
