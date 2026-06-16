@@ -36,12 +36,9 @@
       width: 100%; height: 100%;
     }
 
-    /* --- Lamp toggle button --- */
-    #btn-lamp {
+    /* --- Shared button style --- */
+    .ui-btn {
       position: fixed;
-      bottom: 24px;
-      left: 50%;
-      transform: translateX(-50%);
       background: rgba(0, 0, 0, 0.65);
       color: #eee;
       border: 1px solid rgba(255, 255, 255, 0.18);
@@ -55,11 +52,30 @@
       transition: all 0.15s ease;
       letter-spacing: 0.3px;
     }
+
+    /* --- Lamp toggle button --- */
+    #btn-lamp {
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
     #btn-lamp:hover {
       background: rgba(255, 215, 60, 0.18);
       border-color: rgba(255, 215, 60, 0.70);
       box-shadow: 0 0 16px rgba(255, 215, 60, 0.45);
       transform: translateX(-50%) scale(1.06);
+    }
+
+    /* --- Rerack button --- */
+    #btn-rerack {
+      bottom: 24px;
+      right: 24px;
+    }
+    #btn-rerack:hover {
+      background: rgba(60, 200, 120, 0.18);
+      border-color: rgba(60, 200, 120, 0.70);
+      box-shadow: 0 0 16px rgba(60, 200, 120, 0.35);
+      transform: scale(1.06);
     }
   </style>
 </head>
@@ -68,7 +84,10 @@
   <canvas id="glCanvas"></canvas>
 
   <!-- Lamp on/off toggle -->
-  <button id="btn-lamp">🌑 Lamp OFF</button>
+  <button id="btn-lamp" class="ui-btn">🌑 Lamp OFF</button>
+
+  <!-- Rerack: new random ball layout -->
+  <button id="btn-rerack" class="ui-btn">🎱 New Configuration</button>
 
   <!--
     Main entry point loaded as an ES module.

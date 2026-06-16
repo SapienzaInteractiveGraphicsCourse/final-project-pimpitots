@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import { createRoom, createTable, createLamp, createBallMesh, TABLE_SURFACE_Y, BALL_Y } from './models.js';
 import { generateTextures } from './textures.js';
-import { BALL_RADIUS, TABLE_H } from './physics.js';
+import { randomizeBalls } from './physics.js';
 
 // Lamp swing animation — small, subtle sway like a hanging fixture gently
 // disturbed by passing air, not a deliberately pushed pendulum. Amplitude is
@@ -44,8 +44,8 @@ const BALL_COLORS = [
 let renderer, scene, camera, clock, lamp, texMap;
 let lampOn    = true;
 let ballEnvMap;            // PMREM env map — applied only to ball materials
-let balls     = [];        // [{ id, isCueBall, x, z, vx, vz, pocketed, mesh }]
-let btnLampEl;
+let balls     = [];        // [{ id, isCueBall, color, number, mesh }]
+let btnLampEl, btnRerackEl;
 
 // ─── Entry Point ──────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', init);
@@ -111,8 +111,10 @@ function init() {
   clock = new THREE.Clock();
 
   // ── UI ──
-  btnLampEl = document.getElementById('btn-lamp');
+  btnLampEl   = document.getElementById('btn-lamp');
+  btnRerackEl = document.getElementById('btn-rerack');
   btnLampEl.addEventListener('click', _toggleLamp);
+  btnRerackEl.addEventListener('click', _spawnAllBalls);
 
   // ── Window resize ──
   window.addEventListener('resize', _onResize);
@@ -170,32 +172,21 @@ function _toggleLamp() {
 // ─── Ball Spawning ─────────────────────────────────────────────────────────────
 
 /**
- * Spawns all 15 numbered balls + cue ball (16 total).
- * Colored balls are placed in a standard triangle rack at the far (negative-Z)
- * side; cue ball is placed at the player side (positive-Z).
+ * Spawns all 15 numbered balls + cue ball (16 total) at randomised positions.
+ * The cue ball lands in the positive-Z half; colored balls are scattered
+ * across the full table, collision-free and clear of pockets.
  */
 function _spawnAllBalls() {
   for (const b of balls) scene.remove(b.mesh);
   balls = [];
 
-  // Triangle rack geometry
-  const dr  = BALL_RADIUS * 2;          // column step  (touching)
-  const dz  = BALL_RADIUS * Math.sqrt(3); // row step (touching)
-  const rz  = -0.5;                     // Z of the apex ball
+  const positions = randomizeBalls(15); // pos[0]=cue, pos[1..15]=colored
 
-  // Build 5 rows (1+2+3+4+5 = 15 balls) numbered 1–15 in order
-  let num = 1;
-  for (let row = 0; row < 5; row++) {
-    const z = rz - row * dz;
-    for (let col = 0; col <= row; col++) {
-      const x = (col - row / 2) * dr;
-      _spawnBall(num, num, x, z, false);
-      num++;
-    }
+  _spawnBall(0, 0, positions[0].x, positions[0].z, true);
+
+  for (let i = 1; i <= 15; i++) {
+    _spawnBall(i, i, positions[i].x, positions[i].z, false);
   }
-
-  // Cue ball on the player side
-  _spawnBall(0, 0, 0, TABLE_H / 4, true);
 }
 
 /**
@@ -213,7 +204,7 @@ function _spawnBall(id, number, x, z, isCueBall) {
   mesh.position.set(x, BALL_Y, z);
   mesh.castShadow = true;
   scene.add(mesh);
-  balls.push({ id, isCueBall, color, number, x, z, vx: 0, vz: 0, pocketed: false, mesh });
+  balls.push({ id, isCueBall, color, number, mesh });
 }
 
 // ─── Environment Map ──────────────────────────────────────────────────────────
