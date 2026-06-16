@@ -12,8 +12,17 @@ import * as THREE from 'three';
 import { createRoom, createTable, createLamp, TABLE_SURFACE_Y } from './models.js';
 import { generateTextures } from './textures.js';
 
+// Lamp swing animation — small, subtle sway like a hanging fixture gently
+// disturbed by passing air, not a deliberately pushed pendulum. Amplitude is
+// kept low so the motion reads as a natural idle drift; speed gives a calm
+// ~9s full cycle (still slow/weighty, not a twitch).
+const LAMP_SWING_AMP   = 0.07; // swing amplitude in radians (~4°)
+const LAMP_SWING_SPEED = 0.7;  // swing frequency (radians/second) — ~9s full cycle
+
 // ─── Globals ──────────────────────────────────────────────────────────────────
-let renderer, scene, camera;
+let renderer, scene, camera, clock, lamp;
+let lampOn = true;
+let btnLampEl;
 
 // ─── Entry Point ──────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', init);
@@ -66,10 +75,20 @@ function init() {
   // ── Scene geometry ──
   createRoom(scene, texMap);
   createTable(scene, texMap);
-  createLamp(scene);
+  lamp = createLamp(scene);
+
+  // ── Clock (drives the lamp swing) ──
+  clock = new THREE.Clock();
+
+  // ── UI ──
+  btnLampEl = document.getElementById('btn-lamp');
+  btnLampEl.addEventListener('click', _toggleLamp);
 
   // ── Window resize ──
   window.addEventListener('resize', _onResize);
+
+  // ── Keyboard shortcuts ──
+  window.addEventListener('keydown', _onKeyDown);
 
   // ── Kick off render loop ──
   animate();
@@ -85,9 +104,45 @@ function _onResize() {
 }
 
 /**
+ * Handles keyboard shortcuts. 'L' toggles the lamp on/off.
+ * @param {KeyboardEvent} e
+ */
+function _onKeyDown(e) {
+  if (e.key.toUpperCase() === 'L') _toggleLamp();
+}
+
+// ─── Lamp Animation & Toggle ───────────────────────────────────────────────────
+
+/**
+ * Updates the lamp swing idle animation.
+ * lamp.anchor.rotation.x oscillates sinusoidally (sin is the natural simple-
+ * harmonic pendulum motion: fastest through center, slowest at the
+ * extremes) — the cord, bulb, and point light all swing together since they
+ * are children of lamp.anchor. This visibly exploits the parent-child
+ * hierarchy.
+ * @param {number} elapsedTime - total elapsed time in seconds
+ */
+function _updateLamp(elapsedTime) {
+  lamp.anchor.rotation.x = Math.sin(elapsedTime * LAMP_SWING_SPEED) * LAMP_SWING_AMP;
+}
+
+/**
+ * Toggles the lamp on/off. Affects both the PointLight intensity and the
+ * bulb's emissive intensity, and updates the toggle button's label.
+ */
+function _toggleLamp() {
+  lampOn = !lampOn;
+  lamp.light.intensity = lampOn ? lamp.light.userData.onIntensity : 0;
+  lamp.bulbMesh.material.emissiveIntensity = lampOn ? 2.0 : 0; // 2.0 matches bulbMat's initial value in models.js
+  btnLampEl.textContent = lampOn ? '\u{1F311} Lamp OFF' : '\u{1F315} Lamp ON';
+}
+
+/**
  * Main render loop.
  */
 function animate() {
   requestAnimationFrame(animate);
+  const elapsedTime = clock.getElapsedTime();
+  _updateLamp(elapsedTime);
   renderer.render(scene, camera);
 }

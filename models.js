@@ -7,7 +7,7 @@
  * Exported:
  *   createRoom(scene, texMap)      → { group }
  *   createTable(scene, texMap)     → { group, surfaceMesh }
- *   createLamp(scene)              → { group, bulbMesh, light }
+ *   createLamp(scene)              → { anchor, bulbMesh, light }
  *
  * Textures consumed here (texMap) are generated in textures.js.
  *
@@ -255,12 +255,15 @@ const LAMP_BULB_R = 0.3;  // bulb radius
 /**
  * Creates a single overhead bulb hanging from the ceiling on a short cord,
  * with a point light at the bulb's position, and adds it to the scene.
+ * The cord and bulb hang from an anchor pivoted at the ceiling attachment
+ * point, so rotating the anchor swings the whole fixture as one rigid body.
  * @param {THREE.Scene} scene
- * @returns {{ group: THREE.Group, bulbMesh: THREE.Mesh, light: THREE.PointLight }}
+ * @returns {{ anchor: THREE.Group, bulbMesh: THREE.Mesh, light: THREE.PointLight }}
  */
 export function createLamp(scene) {
-  const group = new THREE.Group();
-  group.name  = 'lamp';
+  const anchor = new THREE.Group();
+  anchor.name  = 'lampAnchor';
+  anchor.position.set(0, ROOM_H, 0); // pivot at the ceiling — rotating this swings the fixture
 
   const cordMat = new THREE.MeshStandardMaterial({
     color:     0x222222,
@@ -272,29 +275,30 @@ export function createLamp(scene) {
   const bulbMat = new THREE.MeshStandardMaterial({
     color:             0xfffde8,
     emissive:          new THREE.Color(0xffffcc),
-    emissiveIntensity: 2.0,
+    emissiveIntensity: 2.0, // matches the value the lamp toggle restores on lamp-on
     roughness:         0.9,
     metalness:         0.0,
   });
 
-  const bulbY = ROOM_H - LAMP_CORD_L - LAMP_BULB_R; // bulb center, hung below the ceiling
+  const bulbY = -(LAMP_CORD_L + LAMP_BULB_R); // bulb center, relative to the ceiling anchor
 
   const cordGeo  = new THREE.CylinderGeometry(0.012, 0.012, LAMP_CORD_L, 8);
   const cordMesh = new THREE.Mesh(cordGeo, cordMat);
-  cordMesh.position.set(0, ROOM_H - LAMP_CORD_L / 2, 0); // spans from the ceiling down to the bulb
+  cordMesh.position.set(0, -LAMP_CORD_L / 2, 0); // spans down from the ceiling anchor to the bulb
   cordMesh.name = 'lampCord';
-  group.add(cordMesh);
+  anchor.add(cordMesh);
 
   const bulbGeo  = new THREE.SphereGeometry(LAMP_BULB_R, 16, 16);
   const bulbMesh = new THREE.Mesh(bulbGeo, bulbMat);
   bulbMesh.position.set(0, bulbY, 0);
   bulbMesh.name = 'lampBulb';
-  group.add(bulbMesh);
+  anchor.add(bulbMesh);
 
   const light = new THREE.PointLight(0xfff5e0, 2.5, 0); // warm white
   light.position.set(0, bulbY, 0);
-  group.add(light);
+  light.userData.onIntensity = light.intensity; // remembered so the lamp toggle can restore it
+  anchor.add(light);
 
-  scene.add(group);
-  return { group, bulbMesh, light };
+  scene.add(anchor);
+  return { anchor, bulbMesh, light };
 }
