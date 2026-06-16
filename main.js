@@ -8,7 +8,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
-import { createRoom, TABLE_SURFACE_Y } from './models.js';
+import { createRoom, createLamp, TABLE_SURFACE_Y } from './models.js';
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
 let renderer, scene, camera;
@@ -58,12 +58,9 @@ function init() {
   fillLight.position.set(-8, 6, 4);
   scene.add(fillLight);
 
-  const topLight = new THREE.PointLight(0xffffff, 1.5, 0); // overhead light, lights the whole room evenly
-  topLight.position.set(0, 6, 0);
-  scene.add(topLight);
-
   // ── Scene geometry ──
   createRoom(scene);
+  createLamp(scene);
 
   // ── Window resize ──
   window.addEventListener('resize', _onResize);

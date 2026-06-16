@@ -6,6 +6,7 @@
  *
  * Exported:
  *   createRoom(scene) → { group }
+ *   createLamp(scene) → { group, bulbMesh, light }
  *
  * Coordinate system: Y-up. Room floor at Y = 0.
  * ─────────────────────────────────────────────────────────────────────────────
@@ -69,4 +70,56 @@ export function createRoom(scene) {
 
   scene.add(group);
   return { group };
+}
+
+// ─── Lamp dimensions ──────────────────────────────────────────────────────
+const LAMP_CORD_L = 0.7;  // cord length (short — lamp hangs close to ceiling)
+const LAMP_BULB_R = 0.3;  // bulb radius
+
+// ─── Lamp ─────────────────────────────────────────────────────────────────────
+/**
+ * Creates a single overhead bulb hanging from the ceiling on a short cord,
+ * with a point light at the bulb's position, and adds it to the scene.
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group, bulbMesh: THREE.Mesh, light: THREE.PointLight }}
+ */
+export function createLamp(scene) {
+  const group = new THREE.Group();
+  group.name  = 'lamp';
+
+  const cordMat = new THREE.MeshStandardMaterial({
+    color:     0x222222,
+    roughness: 1.0,
+    metalness: 0.0,
+  });
+
+  // Emissive material — the bulb glows on its own regardless of incoming light.
+  const bulbMat = new THREE.MeshStandardMaterial({
+    color:             0xfffde8,
+    emissive:          new THREE.Color(0xffffcc),
+    emissiveIntensity: 2.0,
+    roughness:         0.9,
+    metalness:         0.0,
+  });
+
+  const bulbY = ROOM_H - LAMP_CORD_L - LAMP_BULB_R; // bulb center, hung below the ceiling
+
+  const cordGeo  = new THREE.CylinderGeometry(0.012, 0.012, LAMP_CORD_L, 8);
+  const cordMesh = new THREE.Mesh(cordGeo, cordMat);
+  cordMesh.position.set(0, ROOM_H - LAMP_CORD_L / 2, 0); // spans from the ceiling down to the bulb
+  cordMesh.name = 'lampCord';
+  group.add(cordMesh);
+
+  const bulbGeo  = new THREE.SphereGeometry(LAMP_BULB_R, 16, 16);
+  const bulbMesh = new THREE.Mesh(bulbGeo, bulbMat);
+  bulbMesh.position.set(0, bulbY, 0);
+  bulbMesh.name = 'lampBulb';
+  group.add(bulbMesh);
+
+  const light = new THREE.PointLight(0xfff5e0, 2.5, 0); // warm white
+  light.position.set(0, bulbY, 0);
+  group.add(light);
+
+  scene.add(group);
+  return { group, bulbMesh, light };
 }
