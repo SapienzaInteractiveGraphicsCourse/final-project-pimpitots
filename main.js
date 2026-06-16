@@ -9,7 +9,8 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
-import { createRoom, createTable, createLamp, generateTextures, TABLE_SURFACE_Y } from './models.js';
+import { createRoom, createTable, createLamp, TABLE_SURFACE_Y } from './models.js';
+import { generateTextures } from './textures.js';
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
 let renderer, scene, camera;
