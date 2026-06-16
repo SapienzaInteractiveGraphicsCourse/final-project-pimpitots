@@ -58,6 +58,10 @@ function init() {
   fillLight.position.set(-8, 6, 4);
   scene.add(fillLight);
 
+  const topLight = new THREE.PointLight(0xffffff, 1.5, 0); // overhead light, lights the whole room evenly
+  topLight.position.set(0, 6, 0);
+  scene.add(topLight);
+
   // ── Scene geometry ──
   createRoom(scene);
 
