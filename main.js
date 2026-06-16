@@ -4,11 +4,12 @@
  * Responsibility: engine bootstrap — renderer, scene, camera, render loop.
  *
  * Execution flow:
- *   init() → createRoom(scene) → animate()
+ *   init() → generateTextures() → createRoom(scene, texMap) →
+ *     createTable(scene, texMap) → createLamp(scene) → animate()
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
-import { createRoom, createLamp, TABLE_SURFACE_Y } from './models.js';
+import { createRoom, createTable, createLamp, generateTextures, TABLE_SURFACE_Y } from './models.js';
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
 let renderer, scene, camera;
@@ -58,8 +59,12 @@ function init() {
   fillLight.position.set(-8, 6, 4);
   scene.add(fillLight);
 
+  // ── Textures ──
+  const texMap = generateTextures();
+
   // ── Scene geometry ──
-  createRoom(scene);
+  createRoom(scene, texMap);
+  createTable(scene, texMap);
   createLamp(scene);
 
   // ── Window resize ──
