@@ -34,7 +34,7 @@ import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, B
 import { Controls } from './controls.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const LEVELS_BALL_COUNT = [1, 3, 6, 10];  // colored balls per level (level N = index N-1)
+const LEVELS_BALL_COUNT = [1, 2, 3, 4];  // colored balls per level (level N = index N-1)
 const NUM_LEVELS        = LEVELS_BALL_COUNT.length; // 4
 
 const LAMP_SWING_AMP   = 0;       // swing amplitude in radians
@@ -63,13 +63,13 @@ const BALL_COLORS = [
   '#2E7D32',  // 6  green
   '#6D1B1B',  // 7  maroon
   '#212121',  // 8  black (8-ball)
-  '#F5C518',  // 9  yellow stripe
-  '#1565C0',  // 10 blue stripe
-  '#C62828',  // 11 red stripe
-  '#6A1EA0',  // 12 purple stripe
-  '#E65100',  // 13 orange stripe
-  '#2E7D32',  // 14 green stripe
-  '#6D1B1B',  // 15 maroon stripe
+  // '#F5C518',  // 9  yellow stripe
+  // '#1565C0',  // 10 blue stripe
+  // '#C62828',  // 11 red stripe
+  // '#6A1EA0',  // 12 purple stripe
+  // '#E65100',  // 13 orange stripe
+  // '#2E7D32',  // 14 green stripe
+  // '#6D1B1B',  // 15 maroon stripe
 ];
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
