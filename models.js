@@ -237,6 +237,91 @@ function _buildRails(group, mat) {
   addRail( (HW + RW / 2), TY, 0, RW, RH, shortLen);
 }
 
+// ─── Cue Stick ────────────────────────────────────────────────────────────────
+
+// Cue dimensions (scene units)
+const CUE_TIP_R   = 0.025;  // tip radius (narrow end)
+const CUE_TIP_L   = 0.08;   // tip section length
+const CUE_SHAFT_R = 0.028;  // shaft radius
+const CUE_SHAFT_L = 2.8;    // shaft section length
+const CUE_GRIP_R  = 0.040;  // grip radius (wider end)
+const CUE_GRIP_L  = 1.4;    // grip section length
+
+/**
+ * Creates the cue stick as a parent-child hierarchy and adds it to the scene.
+ *
+ * Scene graph:
+ *   cueRoot  (Object3D — pivot at cue ball centre; rotate Y to aim)
+ *     └─ cueGroup (Object3D — reserved for charge/strike slide along local X)
+ *          ├─ tipMesh   (reddish-brown leather tip)
+ *          ├─ shaftMesh (blonde tapered shaft)
+ *          └─ gripMesh  (dark mahogany grip)
+ *
+ * All three sections extend along cueRoot's local +X axis.
+ * Tip is just touching the ball surface at X = BALL_RADIUS.
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ root: THREE.Object3D, group: THREE.Object3D, tipMesh: THREE.Mesh, shaftMesh: THREE.Mesh, gripMesh: THREE.Mesh }}
+ */
+export function createCueStick(scene) {
+  // ── Materials ──
+  const tipMat = new THREE.MeshStandardMaterial({
+    color:     0xcc4400,  // leather tip — reddish-brown
+    roughness: 0.7,
+    metalness: 0.0,
+  });
+  const shaftMat = new THREE.MeshStandardMaterial({
+    color:     0xf5e8c0,  // blonde wood shaft
+    roughness: 0.35,
+    metalness: 0.0,
+  });
+  const gripMat = new THREE.MeshStandardMaterial({
+    color:     0x3b1a0a,  // dark mahogany grip
+    roughness: 0.65,
+    metalness: 0.0,
+  });
+
+  // ── Geometries ──
+  // CylinderGeometry is built along local Y; rotation.z = π/2 lays it along X.
+  const tipGeo   = new THREE.CylinderGeometry(CUE_TIP_R,   CUE_TIP_R,   CUE_TIP_L,   12);
+  const shaftGeo = new THREE.CylinderGeometry(CUE_SHAFT_R, CUE_TIP_R,   CUE_SHAFT_L, 12); // tapers tip→shaft
+  const gripGeo  = new THREE.CylinderGeometry(CUE_GRIP_R,  CUE_SHAFT_R, CUE_GRIP_L,  12); // tapers shaft→grip
+
+  // ── Meshes ──
+  const tipMesh   = new THREE.Mesh(tipGeo,   tipMat);
+  const shaftMesh = new THREE.Mesh(shaftGeo, shaftMat);
+  const gripMesh  = new THREE.Mesh(gripGeo,  gripMat);
+
+  // Rotate to lie along +X
+  const R90 = Math.PI / 2;
+  tipMesh.rotation.z   = R90;
+  shaftMesh.rotation.z = R90;
+  gripMesh.rotation.z  = R90;
+
+  // Position along X — each section's centre offset from origin
+  tipMesh.position.x   = BALL_RADIUS + CUE_TIP_L / 2;
+  shaftMesh.position.x = BALL_RADIUS + CUE_TIP_L + CUE_SHAFT_L / 2;
+  gripMesh.position.x  = BALL_RADIUS + CUE_TIP_L + CUE_SHAFT_L + CUE_GRIP_L / 2;
+
+  tipMesh.castShadow   = true;
+  shaftMesh.castShadow = true;
+  gripMesh.castShadow  = true;
+
+  // ── Hierarchy ──
+  const cueGroup = new THREE.Object3D();
+  cueGroup.name  = 'cueGroup';
+  cueGroup.add(tipMesh, shaftMesh, gripMesh);
+
+  const cueRoot = new THREE.Object3D();
+  cueRoot.name  = 'cueRoot';
+  cueRoot.add(cueGroup);
+
+  cueRoot.visible = false; // shown once balls are spawned
+  scene.add(cueRoot);
+
+  return { root: cueRoot, group: cueGroup, tipMesh, shaftMesh, gripMesh };
+}
+
 // ─── Ball Mesh Factory ────────────────────────────────────────────────────────
 /**
  * Creates a pool ball Mesh with MeshStandardMaterial.

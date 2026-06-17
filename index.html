@@ -66,6 +66,18 @@
       transform: translateX(-50%) scale(1.06);
     }
 
+    /* --- Camera toggle button --- */
+    #btn-cam {
+      bottom: 24px;
+      left: 24px;
+    }
+    #btn-cam:hover {
+      background: rgba(80, 160, 255, 0.18);
+      border-color: rgba(80, 160, 255, 0.70);
+      box-shadow: 0 0 16px rgba(80, 160, 255, 0.35);
+      transform: scale(1.06);
+    }
+
     /* --- Rerack button --- */
     #btn-rerack {
       bottom: 24px;
@@ -83,7 +95,10 @@
   <!-- Full-viewport WebGL canvas -->
   <canvas id="glCanvas"></canvas>
 
-  <!-- Lamp on/off toggle -->
+  <!-- Camera toggle (C key) -->
+  <button id="btn-cam" class="ui-btn">👁 Player POV</button>
+
+  <!-- Lamp on/off toggle (L key) -->
   <button id="btn-lamp" class="ui-btn">🌑 Lamp OFF</button>
 
   <!-- Rerack: new random ball layout -->

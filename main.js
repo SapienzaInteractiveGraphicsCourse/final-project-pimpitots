@@ -1,24 +1,28 @@
 /**
  * main.js
  * ─────────────────────────────────────────────────────────────────────────────
- * Responsibility: engine bootstrap — renderer, scene, camera, render loop.
+ * Responsibility: engine bootstrap — renderer, scene, cameras, render loop.
  *
  * Execution flow:
- *   init() → generateTextures() → createRoom(scene, texMap) →
- *     createTable(scene, texMap) → createLamp(scene) → animate()
+ *   init() → generateTextures() → createRoom → createTable → createLamp →
+ *     createCueStick → _spawnAllBalls() → animate()
+ *
+ * Camera views (toggle with C key or button):
+ *   0 = Overview  — wide overhead shot of the whole table
+ *   1 = Player POV — low angle behind the cue ball, updated every frame
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
-import { createRoom, createTable, createLamp, createBallMesh, TABLE_SURFACE_Y, BALL_Y } from './models.js';
+import { createRoom, createTable, createLamp, createCueStick, createBallMesh, TABLE_SURFACE_Y, BALL_Y } from './models.js';
 import { generateTextures } from './textures.js';
 import { randomizeBalls } from './physics.js';
 
-// Lamp swing animation — small, subtle sway like a hanging fixture gently
-// disturbed by passing air, not a deliberately pushed pendulum. Amplitude is
-// kept low so the motion reads as a natural idle drift; speed gives a calm
-// ~9s full cycle (still slow/weighty, not a twitch).
-const LAMP_SWING_AMP   = 0.07; // swing amplitude in radians (~4°)
-const LAMP_SWING_SPEED = 0.7;  // swing frequency (radians/second) — ~9s full cycle
+// ─── Constants ────────────────────────────────────────────────────────────────
+const LAMP_SWING_AMP   = 0.07;  // swing amplitude in radians (~4°)
+const LAMP_SWING_SPEED = 0.7;   // swing frequency (rad/s) — ~9 s full cycle
+
+const CAM_DIST_BEHIND = 4.5;    // distance behind cue ball for player-POV camera
+const CAM_HEIGHT_POV  = 1.6;    // camera height above table for player POV
 
 // ─── Ball Colors (index 0 = cue ball, 1–15 = standard pool palette) ──────────
 const BALL_COLORS = [
@@ -41,18 +45,18 @@ const BALL_COLORS = [
 ];
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
-let renderer, scene, camera, clock, lamp, texMap;
+let renderer, scene, clock, lamp, texMap;
+let camera0, camera1, activeCamera;  // 0 = overview, 1 = player POV
+let currentCameraIndex = 0;
+let cue;                             // { root, group, tipMesh, shaftMesh, gripMesh }
 let lampOn    = true;
-let ballEnvMap;            // PMREM env map — applied only to ball materials
-let balls     = [];        // [{ id, isCueBall, color, number, mesh }]
-let btnLampEl, btnRerackEl;
+let ballEnvMap;
+let balls     = [];                  // [{ id, isCueBall, color, number, mesh }]
+let btnLampEl, btnRerackEl, btnCamEl;
 
 // ─── Entry Point ──────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', init);
 
-/**
- * Initialises Three.js, builds the empty room, and starts the render loop.
- */
 function init() {
   // ── Renderer ──
   const canvas = document.getElementById('glCanvas');
@@ -61,34 +65,34 @@ function init() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled   = true;
   renderer.shadowMap.type      = THREE.PCFSoftShadowMap;
-  renderer.outputEncoding      = THREE.sRGBEncoding; // correct gamma for CanvasTextures
+  renderer.outputEncoding      = THREE.sRGBEncoding;
   renderer.toneMapping         = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.75;
 
   // ── Scene ──
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x1a1a22);
-  // Fog starts well within the room (8) so the back wall/corners visibly
-  // recede into haze, blending toward the background color (30) — gives the
-  // impression the space extends further than the room's actual bounds.
   scene.fog = new THREE.Fog(0x1a1a22, 8, 30);
 
-  // ── Camera ──
-  // Positioned above the room's ceiling but within its X/Z footprint: this
-  // makes the BackSide-rendered ceiling cull away (camera sits on the side
-  // its outward normal points to) while all four walls stay back-facing
-  // relative to the camera and render correctly — a "roof removed" overview
-  // of the room. (Same trick the room box itself relies on — see models.js.)
+  // ── Cameras ──
   const aspect = window.innerWidth / window.innerHeight;
-  camera = new THREE.PerspectiveCamera(52, aspect, 0.1, 100);
-  camera.position.set(0, 14, 5);
-  camera.lookAt(0, TABLE_SURFACE_Y, 0);
+
+  // Camera 0: overhead overview — sits above ceiling so the BackSide ceiling
+  // culls away while all four walls stay visible (same trick as the room box).
+  camera0 = new THREE.PerspectiveCamera(52, aspect, 0.1, 100);
+  camera0.position.set(0, 14, 5);
+  camera0.lookAt(0, TABLE_SURFACE_Y, 0);
+
+  // Camera 1: player POV — low behind the cue ball, updated every frame.
+  camera1 = new THREE.PerspectiveCamera(58, aspect, 0.05, 100);
+
+  activeCamera = camera0;
 
   // ── Lights ──
-  const ambientLight = new THREE.AmbientLight(0x404060, 0.25); // TUNE: higher → softer/lighter shadows; lower → harsher/darker
+  const ambientLight = new THREE.AmbientLight(0x404060, 0.25);
   scene.add(ambientLight);
 
-  const fillLight = new THREE.DirectionalLight(0x8090ff, 0.05); // soft blue fill from side
+  const fillLight = new THREE.DirectionalLight(0x8090ff, 0.05);
   fillLight.position.set(-8, 6, 4);
   scene.add(fillLight);
 
@@ -100,104 +104,113 @@ function init() {
   createTable(scene, texMap);
   lamp = createLamp(scene);
 
-  // ── Environment map (IBL for ball materials only) ──
+  // ── Cue stick ──
+  cue = createCueStick(scene);
+
+  // ── Environment map (IBL for ball specular) ──
   ballEnvMap = _buildEnvMap();
   scene.environment = ballEnvMap;
 
-  // ── Spawn all 15 balls + cue ball ──
+  // ── Balls ──
   _spawnAllBalls();
 
-  // ── Clock (drives the lamp swing) ──
+  // ── Clock ──
   clock = new THREE.Clock();
 
   // ── UI ──
   btnLampEl   = document.getElementById('btn-lamp');
   btnRerackEl = document.getElementById('btn-rerack');
+  btnCamEl    = document.getElementById('btn-cam');
   btnLampEl.addEventListener('click', _toggleLamp);
   btnRerackEl.addEventListener('click', _spawnAllBalls);
+  btnCamEl.addEventListener('click', _switchCamera);
 
-  // ── Window resize ──
+  // ── Events ──
   window.addEventListener('resize', _onResize);
-
-  // ── Keyboard shortcuts ──
   window.addEventListener('keydown', _onKeyDown);
 
-  // ── Kick off render loop ──
   animate();
 }
 
-/**
- * Keeps the camera aspect ratio and renderer size in sync with the viewport.
- */
+// ─── Resize ───────────────────────────────────────────────────────────────────
 function _onResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
+  const aspect = window.innerWidth / window.innerHeight;
+  camera0.aspect = aspect; camera0.updateProjectionMatrix();
+  camera1.aspect = aspect; camera1.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-/**
- * Handles keyboard shortcuts. 'L' toggles the lamp on/off.
- * @param {KeyboardEvent} e
- */
+// ─── Keyboard ─────────────────────────────────────────────────────────────────
 function _onKeyDown(e) {
-  if (e.key.toUpperCase() === 'L') _toggleLamp();
+  const k = e.key.toUpperCase();
+  if (k === 'L') _toggleLamp();
+  if (k === 'C') _switchCamera();
 }
 
-// ─── Lamp Animation & Toggle ───────────────────────────────────────────────────
-
-/**
- * Updates the lamp swing idle animation.
- * lamp.anchor.rotation.x oscillates sinusoidally (sin is the natural simple-
- * harmonic pendulum motion: fastest through center, slowest at the
- * extremes) — the cord, bulb, and point light all swing together since they
- * are children of lamp.anchor. This visibly exploits the parent-child
- * hierarchy.
- * @param {number} elapsedTime - total elapsed time in seconds
- */
+// ─── Lamp ─────────────────────────────────────────────────────────────────────
 function _updateLamp(elapsedTime) {
   lamp.anchor.rotation.x = Math.sin(elapsedTime * LAMP_SWING_SPEED) * LAMP_SWING_AMP;
 }
 
-/**
- * Toggles the lamp on/off. Affects both the PointLight intensity and the
- * bulb's emissive intensity, and updates the toggle button's label.
- */
 function _toggleLamp() {
   lampOn = !lampOn;
   lamp.light.intensity = lampOn ? lamp.light.userData.onIntensity : 0;
-  lamp.bulbMesh.material.emissiveIntensity = lampOn ? 2.0 : 0; // 2.0 matches bulbMat's initial value in models.js
+  lamp.bulbMesh.material.emissiveIntensity = lampOn ? 2.0 : 0;
   btnLampEl.textContent = lampOn ? '\u{1F311} Lamp OFF' : '\u{1F315} Lamp ON';
 }
 
-// ─── Ball Spawning ─────────────────────────────────────────────────────────────
+// ─── Camera ───────────────────────────────────────────────────────────────────
 
 /**
- * Spawns all 15 numbered balls + cue ball (16 total) at randomised positions.
- * The cue ball lands in the positive-Z half; colored balls are scattered
- * across the full table, collision-free and clear of pockets.
+ * Toggles between the two camera views and updates the button label.
  */
+function _switchCamera() {
+  currentCameraIndex = (currentCameraIndex + 1) % 2;
+  activeCamera = currentCameraIndex === 0 ? camera0 : camera1;
+  // Button shows the destination (where you'll go on the next click)
+  btnCamEl.textContent = currentCameraIndex === 0 ? '\u{1F441} Player POV' : '\u{1F4F7} Overview';
+}
+
+/**
+ * Repositions camera1 each frame — behind the cue ball, aimed at it.
+ * Uses cue.root.rotation.y (aim angle) so once aiming is wired up
+ * the POV will automatically follow the shot direction.
+ */
+function _updatePlayerCamera() {
+  const cueBall = balls.find(b => b.isCueBall);
+  if (!cueBall) return;
+
+  const cx  = cueBall.mesh.position.x;
+  const cz  = cueBall.mesh.position.z;
+  const phi = cue.root.rotation.y; // aim angle (0 = facing +X direction)
+
+  // Place camera behind the ball in the cue direction
+  camera1.position.set(
+    cx + Math.cos(phi) * CAM_DIST_BEHIND,
+    BALL_Y + CAM_HEIGHT_POV,
+    cz - Math.sin(phi) * CAM_DIST_BEHIND,
+  );
+  camera1.lookAt(cx, BALL_Y + 0.05, cz);
+}
+
+// ─── Ball Spawning ────────────────────────────────────────────────────────────
+
 function _spawnAllBalls() {
   for (const b of balls) scene.remove(b.mesh);
   balls = [];
 
   const positions = randomizeBalls(15); // pos[0]=cue, pos[1..15]=colored
-
   _spawnBall(0, 0, positions[0].x, positions[0].z, true);
-
   for (let i = 1; i <= 15; i++) {
     _spawnBall(i, i, positions[i].x, positions[i].z, false);
   }
+
+  // Anchor the cue at the cue ball position
+  const cueBall = balls.find(b => b.isCueBall);
+  cue.root.position.set(cueBall.mesh.position.x, BALL_Y, cueBall.mesh.position.z);
+  cue.root.visible = true;
 }
 
-/**
- * Creates a single ball: builds the Three.js mesh and adds it to the scene,
- * then pushes a physics-state entry to the `balls` array.
- * @param {number}  id        - unique ball identifier
- * @param {number}  number    - ball number (0 = cue, 1–15 = colored)
- * @param {number}  x         - initial X position on the table
- * @param {number}  z         - initial Z position on the table
- * @param {boolean} isCueBall
- */
 function _spawnBall(id, number, x, z, isCueBall) {
   const color = BALL_COLORS[Math.min(number, BALL_COLORS.length - 1)];
   const mesh  = createBallMesh(color, number, texMap.createBallTex, ballEnvMap, texMap.ball.roughnessMap);
@@ -210,23 +223,19 @@ function _spawnBall(id, number, x, z, isCueBall) {
 // ─── Environment Map ──────────────────────────────────────────────────────────
 
 /**
- * Builds a small PMREM env map from a procedural canvas gradient.
- * Keeps the scene mood dark (billiard room). IBL is subtle — the PointLight
- * does the primary work; this just prevents ball specular highlights from
- * going pitch-black in unlit directions.
- * @returns {THREE.Texture}
+ * Builds a PMREM env map from a dark procedural gradient.
+ * Gives balls subtle IBL highlights without washing out the moody room lighting.
  */
 function _buildEnvMap() {
   const canvas  = document.createElement('canvas');
   canvas.width  = 256;
   canvas.height = 128;
   const ctx  = canvas.getContext('2d');
-
   const grad = ctx.createLinearGradient(0, 0, 0, 128);
-  grad.addColorStop(0.00, '#2a2018');  // ceiling: faint warm glow from lamp above
-  grad.addColorStop(0.30, '#10100e');  // upper walls: near-black
-  grad.addColorStop(0.70, '#090810');  // lower walls: cool dark
-  grad.addColorStop(1.00, '#050408');  // floor: almost black
+  grad.addColorStop(0.00, '#2a2018');
+  grad.addColorStop(0.30, '#10100e');
+  grad.addColorStop(0.70, '#090810');
+  grad.addColorStop(1.00, '#050408');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 256, 128);
 
@@ -239,16 +248,14 @@ function _buildEnvMap() {
   const envMap = pmrem.fromEquirectangular(equiTex).texture;
   pmrem.dispose();
   equiTex.dispose();
-
   return envMap;
 }
 
-/**
- * Main render loop.
- */
+// ─── Render Loop ──────────────────────────────────────────────────────────────
 function animate() {
   requestAnimationFrame(animate);
   const elapsedTime = clock.getElapsedTime();
   _updateLamp(elapsedTime);
-  renderer.render(scene, camera);
+  if (currentCameraIndex === 1) _updatePlayerCamera();
+  renderer.render(scene, activeCamera);
 }
