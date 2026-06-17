@@ -15,6 +15,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { TABLE_W, TABLE_H, BALL_RADIUS, POCKET_POSITIONS } from './physics.js';
 
 // ─── Shared Scene-Geometry Constants ─────────────────────────────────────────
@@ -663,7 +664,7 @@ export function createLamp(scene) {
 
   
     
-    const light = new THREE.PointLight(0xfff5e0, 1.1, 20, 3); // warm white
+    const light = new THREE.PointLight(0xfff5e0, 1, 25, 2); // warm white
     light.shadow.mapSize.width = 1024;  // Fixes the jagged, pixelated edges
     light.shadow.mapSize.height = 1024;
     light.position.set(sx, bulbY, 0);
@@ -707,4 +708,55 @@ function _createChainLinks(length, mat) {
     group.add(link);
   }
   return group;
+}
+
+// ─── Lounge Corner (couch + coffee table, modeled in Blender) ─────────────────
+/**
+ * Loads the Blender-authored "lounge corner" model (couch + round coffee
+ * table, exported as a single .glb with embedded textures) and places it in
+ * the back-left corner of the room, away from the pool table footprint.
+ *
+ * The GLB is loaded asynchronously; the group is added to the scene
+ * immediately so callers don't need to wait for the load to complete.
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group }}
+ */
+export function createLoungeCorner(scene) {
+  const group  = new THREE.Group();
+  group.name   = 'loungeCorner';
+
+  const loader = new GLTFLoader();
+  loader.load('./blender_assets/lounge_corner.glb', (gltf) => {
+    const model = gltf.scene;
+
+    // Normalize scale — target a realistic ~6-unit couch width in scene units.
+    const box   = new THREE.Box3().setFromObject(model);
+    const size  = box.getSize(new THREE.Vector3());
+    const scale = 6.0 / Math.max(size.x, size.z);
+    model.scale.setScalar(scale);
+
+    // Re-measure after scaling and drop the model flush onto the floor (y = 0).
+    const scaledBox = new THREE.Box3().setFromObject(model);
+    model.position.y -= scaledBox.min.y;
+
+    model.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow    = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    // Back-left corner of the room, rotated to face into the room.
+    model.rotation.y = Math.PI / 2;
+    model.position.x = -ROOM_W / 2 + 3.5;
+    model.position.z = -ROOM_D / 2 + 2;
+
+    group.add(model);
+  }, undefined, (err) => {
+    console.error('[lounge_corner.glb] load error:', err);
+  });
+
+  scene.add(group);
+  return { group };
 }

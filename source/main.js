@@ -28,7 +28,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
-import { createRoom, createTable, createLamp, createCueStick, createBallMesh, TABLE_SURFACE_Y, BALL_Y } from './models.js';
+import { createRoom, createTable, createLamp, createCueStick, createBallMesh, createLoungeCorner, TABLE_SURFACE_Y, BALL_Y } from './models.js';
 import { generateTextures } from './textures.js';
 import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, BALL_RADIUS } from './physics.js';
 import { Controls } from './controls.js';
@@ -164,6 +164,7 @@ function init() {
   createRoom(scene, texMap);
   createTable(scene, texMap);
   lamp = createLamp(scene);
+  createLoungeCorner(scene);
 
   // ── Cue stick ──
   cue = createCueStick(scene);
