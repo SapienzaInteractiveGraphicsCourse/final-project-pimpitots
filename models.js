@@ -137,8 +137,8 @@ export function createRoom(scene, texMap) {
 
   // [planeWidth(Z), planeHeight(Y), centerZ, centerY]
   const wallPieces = [
-    [zL + ROOM_D / 2,      ROOM_H,           (-ROOM_D / 2 + zL) / 2, ROOM_H / 2],  // left of hole
-    [ROOM_D / 2 - zR,      ROOM_H,           (zR + ROOM_D / 2) / 2,  ROOM_H / 2],  // right of hole
+    [zL + ROOM_D / 2,      ROOM_H,           (-ROOM_D / 2 + zL) / 2, ROOM_H / 2],         // left of hole
+    [ROOM_D / 2 - zR,      ROOM_H,           (zR + ROOM_D / 2) / 2,  ROOM_H / 2],         // right of hole
     [HOLE_W,               ROOM_H - yT,      WIN_CZ,                  (yT + ROOM_H) / 2], // above hole
     [HOLE_W,               yB,               WIN_CZ,                  yB / 2],            // below hole
   ];
@@ -627,11 +627,15 @@ export function createLamp(scene) {
     const domeApexY   = barY - LAMP_SOCKET_L;        // where the dome's rounded top meets the socket
     const shadeCenterY = domeApexY - LAMP_SHADE_R;    // sphere-geometry origin for the hemisphere meshes
 
-    // Outer green dome — upper hemisphere (thetaLength = PI/2), open at the bottom
+    // Outer green dome — upper hemisphere (thetaLength = PI/2), open at the bottom.
+    // It wraps fully around its own bulb on every side except that open rim, so
+    // casting a shadow from it blocks its own bulb's light from leaking sideways
+    // into the other two shades (see castShadow on the light below).
     const shadeGeo  = new THREE.SphereGeometry(LAMP_SHADE_R, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2);
     const shadeMesh = new THREE.Mesh(shadeGeo, shadeOuterMat);
     shadeMesh.position.set(sx, shadeCenterY, 0);
     shadeMesh.name = 'lampShade';
+    shadeMesh.castShadow = true;
     anchor.add(shadeMesh);
 
     // Inner white liner — slightly smaller, visible from below through the open rim
@@ -658,9 +662,14 @@ export function createLamp(scene) {
     anchor.add(bulbMesh);
     bulbMeshes.push(bulbMesh);
 
-    // Point light — positioned alongside the bulb
-    const light = new THREE.PointLight(0xfff5e0, 1.3, 0); // warm white
+  
+    
+    const light = new THREE.PointLight(0xfff5e0, 1.3, 9, 2); // warm white
     light.position.set(sx, bulbY, 0);
+    light.castShadow = true;
+    light.shadow.camera.near = 0.05; // default 0.5 would clip the dome wall (radius 0.38) out of the shadow map entirely
+    light.shadow.bias = -0.002; // Assumption: small negative bias to avoid self-shadowing acne on the curved dome at this scale; may need empirical retuning
+    light.shadow.camera.updateProjectionMatrix();
     light.userData.onIntensity = light.intensity; // remembered so the lamp toggle can restore it
     anchor.add(light);
     lights.push(light);

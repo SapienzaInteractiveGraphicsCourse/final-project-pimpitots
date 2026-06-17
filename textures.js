@@ -190,15 +190,6 @@ function _createFeltRoughnessMap(size) {
  * Balls 9–15 get a white stripe band across the equator.
  * Ball 0 (cue ball) gets no number label.
  *
- * The number badge (white circle + digit) is drawn pre-squeezed horizontally
- * before being centered on the canvas. SphereGeometry's default UV layout
- * wraps a full 360° of longitude across u but only 180° of latitude across v,
- * so at the equator — exactly where this badge lands — one unit of u covers
- * twice the physical distance of one unit of v. A circle drawn at normal
- * proportions would therefore appear twice as wide as it is tall once wrapped
- * onto the ball; squeezing the badge to half width before drawing cancels
- * that stretch so it reads as a true, round circle on the sphere.
- *
  * @param {number} number  - 0 = cue ball, 1–15 = numbered balls
  * @param {string} color   - CSS color for the ball's base
  * @param {number} size    - canvas side length in pixels
