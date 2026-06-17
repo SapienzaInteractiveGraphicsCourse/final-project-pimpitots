@@ -155,8 +155,12 @@ function _updateLamp(elapsedTime) {
 
 function _toggleLamp() {
   lampOn = !lampOn;
-  lamp.light.intensity = lampOn ? lamp.light.userData.onIntensity : 0;
-  lamp.bulbMesh.material.emissiveIntensity = lampOn ? 2.0 : 0;
+  for (const light of lamp.lights) {
+    light.intensity = lampOn ? light.userData.onIntensity : 0;
+  }
+  for (const bulbMesh of lamp.bulbMeshes) {
+    bulbMesh.material.emissiveIntensity = lampOn ? 2.0 : 0;
+  }
   btnLampEl.textContent = lampOn ? '\u{1F311} Lamp OFF' : '\u{1F315} Lamp ON';
 }
 

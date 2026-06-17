@@ -50,22 +50,26 @@ export function randomizeBalls(numColored) {
 
   function tryPlace(xMin, xMax, zMin, zMax) {
     for (let attempt = 0; attempt < 800; attempt++) {
+      // Pick a random point inside the allowed region for this ball type.
       const x = xMin + Math.random() * (xMax - xMin);
       const z = zMin + Math.random() * (zMax - zMin);
       let ok = true;
 
+      // First check: do not overlap any ball already placed.
       for (const p of placed) {
         const dx = p.x - x, dz = p.z - z;
         if (dx * dx + dz * dz < MIN_D * MIN_D) { ok = false; break; }
       }
       if (!ok) continue;
 
+      // Second check: keep the ball away from all pocket openings.
       for (const [px, pz] of POCKET_POSITIONS) {
         const dx = x - px, dz = z - pz;
         if (dx * dx + dz * dz < POCKET_RADIUS * POCKET_RADIUS * 2.5) { ok = false; break; }
       }
       if (!ok) continue;
 
+      // Accept the point once it passes every check.
       const pos = { x, z };
       placed.push(pos);
       return pos;

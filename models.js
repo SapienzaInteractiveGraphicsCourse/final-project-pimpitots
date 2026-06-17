@@ -7,7 +7,7 @@
  * Exported:
  *   createRoom(scene, texMap)      → { group }
  *   createTable(scene, texMap)     → { group, surfaceMesh }
- *   createLamp(scene)              → { anchor, bulbMesh, light }
+ *   createLamp(scene)              → { anchor, bulbMeshes, lights }
  *
  * Textures consumed here (texMap) are generated in textures.js.
  *
@@ -495,31 +495,62 @@ export function createBallMesh(color, number, createBallTex, envMap, roughnessMa
   return mesh;
 }
 
-// ─── Lamp dimensions ──────────────────────────────────────────────────────
-const LAMP_CORD_L = 0.7;  // cord length (short — lamp hangs close to ceiling)
-const LAMP_BULB_R = 0.3;  // bulb radius
+// ─── Lamp dimensions (3-shade pool-table light bar, hung on two chains) ──────
+const LAMP_CHAIN_L     = 1.0;   // chain length from the ceiling anchor down to the bar
+const LAMP_BAR_LEN     = 7.0;   // horizontal bar length (spans most of the table's long axis)
+const LAMP_BAR_R       = 0.035; // bar radius
+const LAMP_MOUNT_R     = 0.07;  // ceiling mount cap radius
+const LAMP_MOUNT_H     = 0.05;  // ceiling mount cap height
+const LAMP_FINIAL_R    = 0.06;  // decorative end-cap sphere radius (bar ends)
+const LAMP_SHADE_INSET = 0.8;   // distance from each bar end to its nearest shade
+const LAMP_SOCKET_L    = 0.12;  // socket (bar-to-shade connector) length
+const LAMP_SOCKET_R    = 0.045; // socket radius
+const LAMP_SHADE_R     = 0.38;  // shade dome radius
+const LAMP_TRIM_TUBE   = 0.015; // shade rim trim-ring tube radius
+const LAMP_BULB_R      = 0.09;  // bulb radius (visible inside each shade)
 
 // ─── Lamp ─────────────────────────────────────────────────────────────────────
 /**
- * Creates a single overhead bulb hanging from the ceiling on a short cord,
- * with a point light at the bulb's position, and adds it to the scene.
- * The cord and bulb hang from an anchor pivoted at the ceiling attachment
- * point, so rotating the anchor swings the whole fixture as one rigid body.
+ * Creates the overhead pool-table light fixture — a horizontal brass bar
+ * carrying three green-shaded pendant lamps, suspended from the ceiling on
+ * two chains — and adds it to the scene.
+ *
+ * The two ceiling mounts sit at local (±halfBar, 0, 0) — exactly on the
+ * anchor's local X axis (y = z = 0) — so rotating the anchor about X leaves
+ * the mounts fixed in place while the chains, bar, and all three shades
+ * (which all have nonzero local y) swing together below them as one rigid
+ * body. This is what makes the swing visibly pivot right where the chains
+ * meet the ceiling, exactly like a real trapeze-style hanging fixture.
+ *
  * @param {THREE.Scene} scene
- * @returns {{ anchor: THREE.Group, bulbMesh: THREE.Mesh, light: THREE.PointLight }}
+ * @returns {{ anchor: THREE.Group, bulbMeshes: THREE.Mesh[], lights: THREE.PointLight[] }}
  */
 export function createLamp(scene) {
   const anchor = new THREE.Group();
   anchor.name  = 'lampAnchor';
   anchor.position.set(0, ROOM_H, 0); // pivot at the ceiling — rotating this swings the fixture
 
-  const cordMat = new THREE.MeshStandardMaterial({
-    color:     0x222222,
-    roughness: 1.0,
-    metalness: 0.0,
+  // ── Materials ──
+  const goldMat = new THREE.MeshStandardMaterial({
+    color:     0xd4af37, // brass/gold hardware
+    roughness: 0.3,
+    metalness: 0.8,
   });
 
-  // Emissive material — the bulb glows on its own regardless of incoming light.
+  const shadeOuterMat = new THREE.MeshStandardMaterial({
+    color:     0x1d6b35, // same baize green as the table felt base coat (textures.js)
+    roughness: 0.35,
+    metalness: 0.35,
+  });
+
+  const shadeInnerMat = new THREE.MeshStandardMaterial({
+    color:     0xf2efe6,
+    roughness: 0.7,
+    metalness: 0.0,
+    side:      THREE.BackSide, // visible looking up into the shade through its open underside
+  });
+
+  // Emissive material — each bulb glows on its own regardless of incoming light.
   const bulbMat = new THREE.MeshStandardMaterial({
     color:             0xfffde8,
     emissive:          new THREE.Color(0xffffcc),
@@ -528,25 +559,126 @@ export function createLamp(scene) {
     metalness:         0.0,
   });
 
-  const bulbY = -(LAMP_CORD_L + LAMP_BULB_R); // bulb center, relative to the ceiling anchor
+  const halfBar = LAMP_BAR_LEN / 2;
+  const barY    = -LAMP_CHAIN_L; // bar center, relative to the ceiling anchor
 
-  const cordGeo  = new THREE.CylinderGeometry(0.012, 0.012, LAMP_CORD_L, 8);
-  const cordMesh = new THREE.Mesh(cordGeo, cordMat);
-  cordMesh.position.set(0, -LAMP_CORD_L / 2, 0); // spans down from the ceiling anchor to the bulb
-  cordMesh.name = 'lampCord';
-  anchor.add(cordMesh);
+  // ── Ceiling mounts — at y = z = 0, exactly on the anchor's rotation axis ──
+  const mountGeo = new THREE.CylinderGeometry(LAMP_MOUNT_R, LAMP_MOUNT_R, LAMP_MOUNT_H, 16);
+  for (const mx of [-halfBar, halfBar]) {
+    const mountMesh = new THREE.Mesh(mountGeo, goldMat);
+    mountMesh.position.set(mx, -LAMP_MOUNT_H / 2, 0);
+    mountMesh.name = 'lampMount';
+    anchor.add(mountMesh);
+  }
 
-  const bulbGeo  = new THREE.SphereGeometry(LAMP_BULB_R, 16, 16);
-  const bulbMesh = new THREE.Mesh(bulbGeo, bulbMat);
-  bulbMesh.position.set(0, bulbY, 0);
-  bulbMesh.name = 'lampBulb';
-  anchor.add(bulbMesh);
+  // ── Chains — two, one per mount, spanning from the ceiling down to the bar ──
+  for (const cx of [-halfBar, halfBar]) {
+    const chain = _createChainLinks(LAMP_CHAIN_L, goldMat);
+    chain.position.set(cx, 0, 0);
+    chain.name = 'lampChain';
+    anchor.add(chain);
+  }
 
-  const light = new THREE.PointLight(0xfff5e0, 2.5, 0); // warm white
-  light.position.set(0, bulbY, 0);
-  light.userData.onIntensity = light.intensity; // remembered so the lamp toggle can restore it
-  anchor.add(light);
+  // ── Horizontal bar ──
+  const barGeo  = new THREE.CylinderGeometry(LAMP_BAR_R, LAMP_BAR_R, LAMP_BAR_LEN, 12);
+  const barMesh = new THREE.Mesh(barGeo, goldMat);
+  barMesh.rotation.z = Math.PI / 2; // lay the cylinder along X
+  barMesh.position.set(0, barY, 0);
+  barMesh.name = 'lampBar';
+  anchor.add(barMesh);
+
+  // ── Decorative finials at the bar's two ends ──
+  const finialGeo = new THREE.SphereGeometry(LAMP_FINIAL_R, 12, 12);
+  for (const fx of [-halfBar, halfBar]) {
+    const finialMesh = new THREE.Mesh(finialGeo, goldMat);
+    finialMesh.position.set(fx, barY, 0);
+    finialMesh.name = 'lampFinial';
+    anchor.add(finialMesh);
+  }
+
+  // ── Three pendant shades, evenly spaced along the bar ──
+  const shadeXs     = [-(halfBar - LAMP_SHADE_INSET), 0, (halfBar - LAMP_SHADE_INSET)];
+  const bulbMeshes  = [];
+  const lights      = [];
+
+  for (const sx of shadeXs) {
+    // Socket — connects the bar to the shade
+    const socketGeo  = new THREE.CylinderGeometry(LAMP_SOCKET_R, LAMP_SOCKET_R, LAMP_SOCKET_L, 12);
+    const socketMesh = new THREE.Mesh(socketGeo, goldMat);
+    socketMesh.position.set(sx, barY - LAMP_SOCKET_L / 2, 0);
+    socketMesh.name = 'lampSocket';
+    anchor.add(socketMesh);
+
+    const domeApexY   = barY - LAMP_SOCKET_L;        // where the dome's rounded top meets the socket
+    const shadeCenterY = domeApexY - LAMP_SHADE_R;    // sphere-geometry origin for the hemisphere meshes
+
+    // Outer green dome — upper hemisphere (thetaLength = PI/2), open at the bottom
+    const shadeGeo  = new THREE.SphereGeometry(LAMP_SHADE_R, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+    const shadeMesh = new THREE.Mesh(shadeGeo, shadeOuterMat);
+    shadeMesh.position.set(sx, shadeCenterY, 0);
+    shadeMesh.name = 'lampShade';
+    anchor.add(shadeMesh);
+
+    // Inner white liner — slightly smaller, visible from below through the open rim
+    const linerGeo  = new THREE.SphereGeometry(LAMP_SHADE_R * 0.92, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+    const linerMesh = new THREE.Mesh(linerGeo, shadeInnerMat);
+    linerMesh.position.set(sx, shadeCenterY, 0);
+    linerMesh.name = 'lampShadeLiner';
+    anchor.add(linerMesh);
+
+    // Trim ring at the shade's open rim (rim sits at the hemisphere's local y = 0)
+    const trimGeo  = new THREE.TorusGeometry(LAMP_SHADE_R, LAMP_TRIM_TUBE, 8, 24);
+    const trimMesh = new THREE.Mesh(trimGeo, goldMat);
+    trimMesh.rotation.x = Math.PI / 2; // lie flat (horizontal ring)
+    trimMesh.position.set(sx, shadeCenterY, 0);
+    trimMesh.name = 'lampTrim';
+    anchor.add(trimMesh);
+
+    // Bulb — small emissive sphere hanging inside the shade, just above the rim
+    const bulbY    = shadeCenterY + LAMP_SHADE_R * 0.3;
+    const bulbGeo  = new THREE.SphereGeometry(LAMP_BULB_R, 12, 12);
+    const bulbMesh = new THREE.Mesh(bulbGeo, bulbMat);
+    bulbMesh.position.set(sx, bulbY, 0);
+    bulbMesh.name = 'lampBulb';
+    anchor.add(bulbMesh);
+    bulbMeshes.push(bulbMesh);
+
+    // Point light — positioned alongside the bulb
+    const light = new THREE.PointLight(0xfff5e0, 1.3, 0); // warm white
+    light.position.set(sx, bulbY, 0);
+    light.userData.onIntensity = light.intensity; // remembered so the lamp toggle can restore it
+    anchor.add(light);
+    lights.push(light);
+  }
 
   scene.add(anchor);
-  return { anchor, bulbMesh, light };
+  return { anchor, bulbMeshes, lights };
+}
+
+/**
+ * Builds a short vertical chain as a stack of alternating ring links — every
+ * other link is rotated 90° about Y from its neighbour, so the chain reads
+ * as interlocked rather than as identical stacked rings. Returns a Group
+ * spanning from local y = 0 (top, ceiling end) down to y = -length (bottom,
+ * bar end); the caller positions the group itself.
+ * @param {number} length - total chain length
+ * @param {THREE.Material} mat
+ * @returns {THREE.Group}
+ */
+function _createChainLinks(length, mat) {
+  const group       = new THREE.Group();
+  const linkCount   = 8;
+  const linkSpacing = length / linkCount;
+  const linkR       = linkSpacing * 0.42;
+  const linkTube    = linkSpacing * 0.14;
+  const linkGeo     = new THREE.TorusGeometry(linkR, linkTube, 6, 12);
+
+  for (let i = 0; i < linkCount; i++) {
+    const link = new THREE.Mesh(linkGeo, mat);
+    link.position.y = -linkSpacing * (i + 0.5);
+    if (i % 2 === 1) link.rotation.y = Math.PI / 2; // alternate plane for an interlocked look
+    link.name = 'chainLink';
+    group.add(link);
+  }
+  return group;
 }
