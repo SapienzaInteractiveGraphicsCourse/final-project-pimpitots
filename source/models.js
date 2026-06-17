@@ -664,10 +664,13 @@ export function createLamp(scene) {
   
     
     const light = new THREE.PointLight(0xfff5e0, 1.1, 20, 3); // warm white
+    light.shadow.mapSize.width = 1024;  // Fixes the jagged, pixelated edges
+    light.shadow.mapSize.height = 1024;
     light.position.set(sx, bulbY, 0);
     light.castShadow = true;
     light.shadow.camera.near = 0.05; // default 0.5 would clip the dome wall (radius 0.38) out of the shadow map entirely
-    light.shadow.bias = -0.002; // Assumption: small negative bias to avoid self-shadowing acne on the curved dome at this scale; may need empirical retuning
+    light.shadow.bias = -0.0001; // Assumption: small negative bias to avoid self-shadowing acne on the curved dome at this scale; may need empirical retuning
+    light.shadow.normalBias = 0.0;     // Prevents shadow acne on the curved sphere
     light.shadow.camera.updateProjectionMatrix();
     light.userData.onIntensity = light.intensity; // remembered so the lamp toggle can restore it
     anchor.add(light);
