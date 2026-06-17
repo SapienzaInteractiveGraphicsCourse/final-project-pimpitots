@@ -635,7 +635,6 @@ export function createLamp(scene) {
     const shadeMesh = new THREE.Mesh(shadeGeo, shadeOuterMat);
     shadeMesh.position.set(sx, shadeCenterY, 0);
     shadeMesh.name = 'lampShade';
-    shadeMesh.castShadow = true;
     anchor.add(shadeMesh);
 
     // Inner white liner — slightly smaller, visible from below through the open rim
@@ -664,7 +663,7 @@ export function createLamp(scene) {
 
   
     
-    const light = new THREE.PointLight(0xfff5e0, 1.3, 9, 2); // warm white
+    const light = new THREE.PointLight(0xfff5e0, 1.1, 20, 3); // warm white
     light.position.set(sx, bulbY, 0);
     light.castShadow = true;
     light.shadow.camera.near = 0.05; // default 0.5 would clip the dome wall (radius 0.38) out of the shadow map entirely

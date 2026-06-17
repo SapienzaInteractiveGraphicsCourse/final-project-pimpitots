@@ -2,11 +2,15 @@
  * main.js
  * ─────────────────────────────────────────────────────────────────────────────
  * Responsibility: engine bootstrap — renderer, scene, cameras, cue/physics
- * gameplay loop, and the power-bar UI.
+ * gameplay loop, level progression, and HUD.
  *
  * Execution flow:
  *   init() → generateTextures() → createRoom → createTable → createLamp →
- *     createCueStick → Controls(canvas) → _spawnAllBalls() → animate()
+ *     createCueStick → Controls(canvas) → _startLevel(0) → animate()
+ *
+ * Level progression:
+ *   Level 1: 1 ball  |  Level 2: 3 balls  |  Level 3: 6 balls  |  Level 4: 10 balls
+ *   Pocket all colored balls → level complete → after Level 4 → win screen.
  *
  * Gameplay state machine (gameState):
  *   WAITING  — cue follows the cursor, charge bar is live, a shot may fire
@@ -17,10 +21,10 @@
  *   0 = Overview  — wide overhead shot of the whole table
  *   1 = Player POV — low angle behind the cue ball, updated every frame
  *
- * A third camera (Side View) is independent of the toggle above: its own
- * button shows a fixed profile shot of the table and lamp from the right
- * wall, then restores whichever of the two cameras above was active when
- * pressed again.
+ * Loading overlay:
+ *   renderer.compile() pre-links all shader programs so frame 0 has no stall.
+ *   We count 2 actual renderer.render() calls; after the second the GPU has
+ *   presented the first real frame and the overlay fades out.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
@@ -30,22 +34,21 @@ import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, B
 import { Controls } from './controls.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const LAMP_SWING_AMP   = 0.07;  // swing amplitude in radians (~4°)
-const LAMP_SWING_SPEED = 0.7;   // swing frequency (rad/s) — ~9 s full cycle
+const LEVELS_BALL_COUNT = [1, 3, 6, 10];  // colored balls per level (level N = index N-1)
+const NUM_LEVELS        = LEVELS_BALL_COUNT.length; // 4
 
-const CAM_DIST_BEHIND = 4.5;    // distance behind cue ball for player-POV camera
-const CAM_HEIGHT_POV  = 1.6;    // camera height above table for player POV
+const LAMP_SWING_AMP   = 0;       // swing amplitude in radians
+const LAMP_SWING_SPEED = 0.05;    // swing frequency (rad/s)
+
+const CAM_DIST_BEHIND = 4.5;      // distance behind cue ball for player-POV camera
+const CAM_HEIGHT_POV  = 1.6;      // camera height above table for player POV
 
 const STRIKE_FORWARD_TIME = 0.08; // seconds for the cue to snap forward into the ball
 const STRIKE_SHOW_TIME    = 0.25; // seconds the cue stays visible after the strike begins
 
-const DT_CAP = 0.05; // clamp on per-frame delta time, guards against huge dt after a tab stall
+const DT_CAP = 0.05; // clamp on per-frame delta time
 
-// Speed (units/s) above which a ball can travel further than its own radius
-// within a single DT_CAP-length frame — i.e. fast enough to tunnel straight
-// through a cushion or another ball without ever overlapping it on a frame
-// boundary. Stepping physics in smaller sub-steps above this speed keeps
-// each individual displacement under one ball radius.
+// Speed threshold below which a single physics step per frame is collision-safe
 const SUBSTEP_SAFE_SPEED    = BALL_RADIUS / (2 * DT_CAP);
 const SUBSTEP_SAFE_SPEED_SQ = SUBSTEP_SAFE_SPEED * SUBSTEP_SAFE_SPEED;
 
@@ -71,9 +74,9 @@ const BALL_COLORS = [
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
 let renderer, scene, clock, lamp, texMap;
-let camera0, camera1, activeCamera;  // 0 = overview, 1 = player POV
+let camera0, camera1, activeCamera;
 let currentCameraIndex = 0;
-let cue;                             // { root, group, tipMesh, shaftMesh, gripMesh }
+let cue;
 let lampOn    = true;
 let ballEnvMap;
 let balls     = [];                  // [{ id, isCueBall, color, number, x, z, vx, vz, pocketed, mesh }]
@@ -82,7 +85,7 @@ let powerFillEl, powerBarWrapEl;
 let controls;
 
 // Mutable camera-distance for player-POV zoom (mouse wheel / touchpad scroll)
-let camDistBehind = CAM_DIST_BEHIND; // initialized from constant, adjusted by _onWheel
+let camDistBehind = CAM_DIST_BEHIND;
 
 const _ballScreenPos = new THREE.Vector3(); // scratch vector for cursor-targeted aiming
 
@@ -94,13 +97,22 @@ const STATE = {
 };
 let gameState = STATE.WAITING;
 
-let strikeTimer          = 0; // seconds elapsed since the current strike began
-let strikeStartPullback  = 0; // cue.group.position.x at the moment the strike began
-let strikeOriginX        = 0; // cue ball x position at the moment the strike began
-let strikeOriginZ        = 0; // cue ball z position at the moment the strike began
-let strikePendingPhi     = 0; // cue aim angle captured at shot-fire
-let strikePendingPower   = 0; // shot power captured at shot-fire
-let strikeHitApplied     = false; // true once cue-ball velocity has been applied this strike
+let strikeTimer         = 0;
+let strikeStartPullback = 0;
+let strikeOriginX       = 0;
+let strikeOriginZ       = 0;
+let strikePendingPhi    = 0;    // cue aim angle captured at shot-fire
+let strikePendingPower  = 0;    // shot power captured at shot-fire
+let strikeHitApplied    = false; // true once cue-ball velocity has been applied this strike
+
+// ─── Level State ──────────────────────────────────────────────────────────────
+let currentLevel            = 0;     // 0-based index into LEVELS_BALL_COUNT
+let ballsRemaining          = 0;     // colored balls still on table
+let gameWon                 = false;
+let _levelTransitionTimeout = null;  // handle so Reset can cancel a pending advance
+
+// ─── HUD element refs (cached in _buildHUD) ───────────────────────────────────
+let hudLevelEl, hudBallsEl, overlayEl;
 
 // ─── Entry Point ──────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', init);
@@ -116,23 +128,23 @@ function init() {
   renderer.outputEncoding      = THREE.sRGBEncoding;
   renderer.toneMapping         = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.75;
+  // Pre-clear to night-sky colour so the loading overlay's backdrop-filter
+  // blurs dark blue instead of WebGL's default black.
+  renderer.setClearColor(0x080d20, 1);
+  renderer.clear();
 
   // ── Scene ──
   scene = new THREE.Scene();
   scene.background = _buildNightSkyBackground();
-  // Fog color matches the deep night sky so far geometry fades naturally.
   scene.fog = new THREE.Fog(0x080d20, 8, 30);
 
   // ── Cameras ──
   const aspect = window.innerWidth / window.innerHeight;
 
-  // Camera 0: overhead overview — sits above ceiling so the BackSide ceiling
-  // culls away while all four walls stay visible (same trick as the room box).
   camera0 = new THREE.PerspectiveCamera(52, aspect, 0.1, 100);
   camera0.position.set(0, 14, 5);
   camera0.lookAt(0, TABLE_SURFACE_Y, 0);
 
-  // Camera 1: player POV — low behind the cue ball, updated every frame.
   camera1 = new THREE.PerspectiveCamera(58, aspect, 0.05, 100);
 
   activeCamera = camera0;
@@ -156,34 +168,29 @@ function init() {
   // ── Cue stick ──
   cue = createCueStick(scene);
 
-  // ── Controls (must exist before _spawnAllBalls, which reads controls.enabled) ──
+  // ── Controls ──
   controls = new Controls(canvas);
 
   // ── Environment map (IBL for ball specular) ──
   ballEnvMap = _buildEnvMap();
   scene.environment = ballEnvMap;
 
-  // ── Balls ──
-  _spawnAllBalls();
-
   // ── Clock ──
   clock = new THREE.Clock();
 
-  // ── UI ──
-  btnLampEl      = document.getElementById('btn-lamp');
-  btnCamEl       = document.getElementById('btn-cam');
-  powerFillEl    = document.getElementById('power-fill');
-  powerBarWrapEl = document.getElementById('power-bar-wrap');
-  document.getElementById('btn-newconfig').addEventListener('click', _spawnAllBalls);
-  document.getElementById('btn-reset').addEventListener('click', _spawnAllBalls);
-  btnLampEl.addEventListener('click', _toggleLamp);
-  btnCamEl.addEventListener('click', _switchCamera);
-  canvas.addEventListener('wheel', _onWheel, { passive: false });
+  // ── HUD & UI ──
+  _buildHUD();
+  _bindUIButtons();
 
   // ── Events ──
   window.addEventListener('resize', _onResize);
   window.addEventListener('keydown', _onKeyDown);
+  canvas.addEventListener('wheel', _onWheel, { passive: false });
 
+  // ── Start game at level 0 ──
+  _startLevel(0);
+
+  // ── Render loop ──
   animate();
 }
 
@@ -200,105 +207,51 @@ function _onKeyDown(e) {
   const k = e.key.toUpperCase();
   if (k === 'L') _toggleLamp();
   if (k === 'C' || k === 'V') _switchCamera();
-  if (k === 'R') _spawnAllBalls();
-  if (k === 'N') _spawnAllBalls();
+  if (k === 'R') _resetGame();
+  if (k === 'N') _newConfiguration();
 }
 
-// ─── Lamp ─────────────────────────────────────────────────────────────────────
-function _updateLamp(elapsedTime) {
-  lamp.anchor.rotation.x = Math.sin(elapsedTime * LAMP_SWING_SPEED) * LAMP_SWING_AMP;
-}
+// ─── Level Management ─────────────────────────────────────────────────────────
 
-function _toggleLamp() {
-  lampOn = !lampOn;
-  for (const light of lamp.lights) {
-    light.intensity = lampOn ? light.userData.onIntensity : 0;
+/**
+ * Starts (or restarts) a level: clears old balls, spawns new ones,
+ * resets physics state, and transitions to WAITING.
+ * @param {number} levelIndex - 0-based index
+ */
+function _startLevel(levelIndex) {
+  // Cancel any pending advance (e.g. Reset pressed mid-transition)
+  if (_levelTransitionTimeout !== null) {
+    clearTimeout(_levelTransitionTimeout);
+    _levelTransitionTimeout = null;
   }
-  for (const bulbMesh of lamp.bulbMeshes) {
-    bulbMesh.material.emissiveIntensity = lampOn ? 2.0 : 0;
-  }
-  btnLampEl.textContent = lampOn ? '\u{1F311} Lamp OFF' : '\u{1F315} Lamp ON';
-}
 
-// ─── Camera ───────────────────────────────────────────────────────────────────
+  currentLevel     = levelIndex;
+  gameState        = STATE.WAITING;
+  controls.enabled = true;
 
-/**
- * Toggles between overview (camera0) and player-POV (camera1).
- */
-function _switchCamera() {
-  currentCameraIndex = (currentCameraIndex + 1) % 2;
-  activeCamera = currentCameraIndex === 0 ? camera0 : camera1;
-  // Button shows the destination (where you'll go on the next click)
-  btnCamEl.textContent = currentCameraIndex === 0 ? '\u{1F441} Player POV' : '\u{1F4F7} Overview';
-}
+  const numColored = LEVELS_BALL_COUNT[levelIndex];
+  ballsRemaining   = numColored;
 
-/**
- * Repositions camera1 each frame — behind the cue ball, aimed at it.
- * Uses cue.root.rotation.y (aim angle) so once aiming is wired up
- * the POV will automatically follow the shot direction.
- */
-function _updatePlayerCamera() {
-  const cueBall = balls.find(b => b.isCueBall);
-  if (!cueBall) return;
-
-  const cx  = cueBall.mesh.position.x;
-  const cz  = cueBall.mesh.position.z;
-  const phi = cue.root.rotation.y; // aim angle (0 = facing +X direction)
-
-  // Place camera behind the ball in the cue direction (distance driven by scroll zoom)
-  camera1.position.set(
-    cx + Math.cos(phi) * camDistBehind,
-    BALL_Y + CAM_HEIGHT_POV,
-    cz - Math.sin(phi) * camDistBehind,
-  );
-  camera1.lookAt(cx, BALL_Y + 0.05, cz);
-}
-
-// ─── Player-POV Zoom (mouse wheel / touchpad) ─────────────────────────────────
-/**
- * Adjusts camDistBehind when the user scrolls over the canvas.
- * Only active while the player-POV camera (camera1) is the active camera.
- * Normalises deltaY across deltaMode values so both mouse wheels (which
- * typically report deltaMode=1, ~3 lines per tick) and trackpads (deltaMode=0,
- * finer pixel-level increments) produce a comparable step size.
- *
- * Zoom range: 1.5 (tight close-up) – 10.0 (pulled far back).
- * Pinch-to-zoom on a touchpad fires as wheel events with ctrlKey=true;
- * the same delta normalisation handles it correctly.
- */
-function _onWheel(e) {
-  if (activeCamera !== camera1) return; // zoom only in player-POV mode
-  e.preventDefault();
-
-  // deltaMode 0 = pixels (trackpad), 1 = lines (mouse wheel), 2 = pages
-  const step = e.deltaMode === 0 ? e.deltaY * 0.005 : e.deltaY * 0.15;
-  // Max 6.0: with ball at table edge (±4.30 X, ±2.05 Z) and room walls at ±11 X / ±9 Z,
-  // a 6-unit distance keeps the camera safely inside the room in all aim directions.
-  camDistBehind = Math.max(1.5, Math.min(6.0, camDistBehind + step));
-}
-
-// ─── Ball Spawning ────────────────────────────────────────────────────────────
-
-function _spawnAllBalls() {
-  if (gameState === STATE.ROLLING || gameState === STATE.STRIKING) return; // never reset the table mid-shot
-
+  // Remove old ball meshes
   for (const b of balls) scene.remove(b.mesh);
   balls = [];
 
-  const positions = randomizeBalls(15); // pos[0]=cue, pos[1..15]=colored
+  // Spawn cue ball + colored balls at random positions
+  const positions = randomizeBalls(numColored);
   _spawnBall(0, 0, positions[0].x, positions[0].z, true);
-  for (let i = 1; i <= 15; i++) {
+  for (let i = 1; i <= numColored; i++) {
     _spawnBall(i, i, positions[i].x, positions[i].z, false);
   }
 
-  // Anchor the cue at the cue ball position
+  // Reset cue to default position
   const cueBall = balls.find(b => b.isCueBall);
-  cue.root.position.set(cueBall.mesh.position.x, BALL_Y, cueBall.mesh.position.z);
+  if (cueBall) {
+    cue.root.position.set(cueBall.mesh.position.x, BALL_Y, cueBall.mesh.position.z);
+  }
   cue.root.visible = true;
   cue.group.position.set(0, 0, 0);
 
-  gameState        = STATE.WAITING;
-  controls.enabled = true;
+  _updateHUD();
 }
 
 function _spawnBall(id, number, x, z, isCueBall) {
@@ -310,15 +263,30 @@ function _spawnBall(id, number, x, z, isCueBall) {
   balls.push({ id, isCueBall, color, number, x, z, vx: 0, vz: 0, pocketed: false, mesh });
 }
 
-// ─── Cue Ball Respawn (after a scratch) ──────────────────────────────────────
 /**
- * Restores the cue ball to its standard re-spot position after it has been
- * pocketed. Called from animate() on a short delay after a scratch.
+ * Respawn the current level with a new random ball layout.
+ * Called by the "New Configuration" button and N key.
  */
+function _newConfiguration() {
+  if (gameState === STATE.ROLLING || gameState === STATE.STRIKING) return;
+  _startLevel(currentLevel);
+}
+
+/**
+ * Reset back to Level 1.
+ * Called by the "Reset" button and R key.
+ */
+function _resetGame() {
+  if (gameState === STATE.ROLLING || gameState === STATE.STRIKING) return;
+  gameWon = false;
+  if (overlayEl) overlayEl.style.display = 'none';
+  _startLevel(0);
+}
+
+// ─── Cue Ball Respawn (after scratch) ────────────────────────────────────────
 function _respawnCueBall() {
   const cueBall = balls.find(b => b.isCueBall);
   if (!cueBall) return;
-
   cueBall.x        = 0;
   cueBall.z        = TABLE_H / 4;
   cueBall.vx       = 0;
@@ -329,11 +297,6 @@ function _respawnCueBall() {
 }
 
 // ─── Shot Firing ──────────────────────────────────────────────────────────────
-/**
- * Launches the cue ball along the current aim direction at the given speed,
- * and starts the cue's forward strike animation.
- * @param {number} power - shot speed in scene units/s
- */
 function _fireShot(power) {
   const cueBall = balls.find(b => b.isCueBall && !b.pocketed);
   if (!cueBall) return;
@@ -354,11 +317,6 @@ function _fireShot(power) {
 }
 
 // ─── Cue Update ───────────────────────────────────────────────────────────────
-/**
- * Drives the cue's position, aim rotation, pullback, visibility, and strike
- * animation according to the current gameplay state.
- * @param {number} dt - delta time in seconds
- */
 function _updateCue(dt) {
   const cueBall = balls.find(b => b.isCueBall && !b.pocketed);
   if (gameState === STATE.ROLLING || !cueBall) {
@@ -375,9 +333,7 @@ function _updateCue(dt) {
   if (gameState === STATE.WAITING) {
     cue.root.visible = true;
 
-    // Cursor-targeted aiming: while dragging in the overview camera, point
-    // the cue at wherever the cursor is relative to the cue ball on screen,
-    // rather than only accumulating relative drag motion.
+    // Cursor-targeted aiming in overview camera
     if (controls.isAiming && activeCamera === camera0) {
       _ballScreenPos.set(cueBall.x, BALL_Y, cueBall.z).project(camera0);
       const ballScreenX = (_ballScreenPos.x + 1) / 2 * window.innerWidth;
@@ -391,6 +347,7 @@ function _updateCue(dt) {
 
     cue.root.rotation.y  = controls.aimAngle;
     cue.group.position.x = controls.pullback;
+
   } else if (gameState === STATE.STRIKING) {
     strikeTimer += dt;
     const t = Math.min(strikeTimer / STRIKE_FORWARD_TIME, 1.0);
@@ -400,15 +357,13 @@ function _updateCue(dt) {
     const targetX = -BALL_RADIUS;
     cue.group.position.x = strikeStartPullback + (targetX - strikeStartPullback) * t;
 
-    // Apply cue-ball velocity the first frame the cue tip's near-face reaches
-    // the ball surface: cueGroup.x ≤ 0  ⟺  tipFace ≤ BALL_RADIUS (ball surface).
-    // Keeping the velocity deferred until this moment prevents the ball from
-    // flying away while the cue stick is still mid-approach.
+    // Apply cue-ball velocity the first frame the tip's near-face reaches the
+    // ball surface: cueGroup.x ≤ 0  ⟺  tipFace ≤ BALL_RADIUS (ball surface).
     if (!strikeHitApplied && cue.group.position.x <= 0) {
-      const cueBall = balls.find(b => b.isCueBall && !b.pocketed);
-      if (cueBall) {
-        cueBall.vx = -Math.cos(strikePendingPhi) * strikePendingPower;
-        cueBall.vz =  Math.sin(strikePendingPhi) * strikePendingPower;
+      const hitBall = balls.find(b => b.isCueBall && !b.pocketed);
+      if (hitBall) {
+        hitBall.vx = -Math.cos(strikePendingPhi) * strikePendingPower;
+        hitBall.vz =  Math.sin(strikePendingPhi) * strikePendingPower;
       }
       strikeHitApplied = true;
     }
@@ -421,54 +376,226 @@ function _updateCue(dt) {
 }
 
 // ─── Ball Rolling Rotation ────────────────────────────────────────────────────
-const _deltaQ   = new THREE.Quaternion(); // scratch quaternion reused every call
-const _rollAxis = new THREE.Vector3();    // scratch axis vector reused every call
+const _deltaQ   = new THREE.Quaternion();
+const _rollAxis = new THREE.Vector3();
 
-/**
- * Spins a ball's mesh to visually match its rolling motion: the roll axis is
- * perpendicular to its velocity (in the XZ plane), and the roll angle is
- * derived from the distance travelled this frame divided by the ball radius.
- * @param {{ vx: number, vz: number, mesh: THREE.Object3D }} ball
- * @param {number} dt - delta time in seconds
- */
 function _updateBallRotation(ball, dt) {
   const speed = Math.sqrt(ball.vx * ball.vx + ball.vz * ball.vz);
   if (speed < 0.0001) return;
-
   _rollAxis.set(-ball.vz / speed, 0, ball.vx / speed);
   const angle = (speed * dt) / BALL_RADIUS;
   _deltaQ.setFromAxisAngle(_rollAxis, angle);
   ball.mesh.quaternion.premultiply(_deltaQ);
 }
 
-// ─── Power Bar UI ─────────────────────────────────────────────────────────────
-/**
- * Reflects the current charge level in the power-bar fill width, color
- * (green at low charge, shifting to red at full charge), glow, and tremble.
- */
-function _updatePowerBar() {
-  const pct = controls.chargeAmount * 100;
-  powerFillEl.style.width = `${pct}%`;
+// ─── Lamp ─────────────────────────────────────────────────────────────────────
+function _updateLamp(elapsedTime) {
+  lamp.anchor.rotation.x = Math.sin(elapsedTime * LAMP_SWING_SPEED) * LAMP_SWING_AMP;
+}
 
-  const hue = 120 - controls.chargeAmount * 120; // green (120°) → red (0°)
-  powerFillEl.style.background = `hsl(${hue}, 90%, 50%)`;
-  powerFillEl.style.boxShadow = controls.isCharging
-    ? `0 0 ${6 + controls.chargeAmount * 14}px hsl(${hue}, 90%, 60%)`
-    : 'none';
+function _toggleLamp() {
+  lampOn = !lampOn;
+  for (const light of lamp.lights) {
+    light.intensity = lampOn ? light.userData.onIntensity : 0;
+  }
+  for (const bulbMesh of lamp.bulbMeshes) {
+    bulbMesh.material.emissiveIntensity = lampOn ? 2.0 : 0;
+  }
+  _updateHUD();
+}
 
-  const tremble = controls.isCharging ? controls.chargeAmount * 3 : 0;
-  powerBarWrapEl.style.setProperty('--tremble', `${tremble}px`);
+// ─── Camera ───────────────────────────────────────────────────────────────────
+function _switchCamera() {
+  currentCameraIndex = (currentCameraIndex + 1) % 2;
+  activeCamera = currentCameraIndex === 0 ? camera0 : camera1;
+  _updateHUD();
+}
+
+function _updatePlayerCamera() {
+  const cueBall = balls.find(b => b.isCueBall);
+  if (!cueBall) return;
+
+  const cx  = cueBall.mesh.position.x;
+  const cz  = cueBall.mesh.position.z;
+  const phi = cue.root.rotation.y;
+
+  camera1.position.set(
+    cx + Math.cos(phi) * camDistBehind,
+    BALL_Y + CAM_HEIGHT_POV,
+    cz - Math.sin(phi) * camDistBehind,
+  );
+  camera1.lookAt(cx, BALL_Y + 0.05, cz);
+}
+
+// ─── Player-POV Zoom ──────────────────────────────────────────────────────────
+function _onWheel(e) {
+  if (activeCamera !== camera1) return;
+  e.preventDefault();
+  const step = e.deltaMode === 0 ? e.deltaY * 0.005 : e.deltaY * 0.15;
+  camDistBehind = Math.max(1.5, Math.min(6.0, camDistBehind + step));
+}
+
+// ─── Render Loop ──────────────────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+
+  // ── 1. Frame timing ──
+  const dt          = Math.min(clock.getDelta(), DT_CAP);
+  const elapsedTime = clock.elapsedTime;
+
+  // ── 2. Input ──
+  controls.update();
+  const shot = controls.consumeShot();
+  if (shot && gameState === STATE.WAITING) _fireShot(shot.power);
+
+  // ── 3. Physics ──
+  if (gameState === STATE.ROLLING || gameState === STATE.STRIKING) {
+    let maxSpeedSq = 0;
+    for (const ball of balls) {
+      if (ball.pocketed) continue;
+      const speedSq = ball.vx * ball.vx + ball.vz * ball.vz;
+      if (speedSq > maxSpeedSq) maxSpeedSq = speedSq;
+    }
+
+    const SUB_STEPS = maxSpeedSq < SUBSTEP_SAFE_SPEED_SQ ? 1 : 3;
+    const subDt     = dt / SUB_STEPS;
+
+    let newlyPocketed = [];
+    for (let s = 0; s < SUB_STEPS; s++) {
+      newlyPocketed = newlyPocketed.concat(stepPhysics(balls, subDt));
+    }
+
+    for (const b of newlyPocketed) {
+      b.mesh.visible = false;
+      if (b.isCueBall) {
+        setTimeout(() => _respawnCueBall(), 800);
+      } else {
+        // Colored ball pocketed — decrement counter and check for level complete
+        ballsRemaining--;
+        _updateHUD();
+        if (ballsRemaining <= 0) {
+          _onLevelComplete();
+          return; // rAF already queued; skip rest of this frame
+        }
+      }
+    }
+
+    if (gameState === STATE.ROLLING && isReadyForNextShot(balls)) {
+      const cueBall = balls.find(b => b.isCueBall);
+      if (cueBall && !cueBall.pocketed) {
+        snapToRest(balls);
+        gameState        = STATE.WAITING;
+        controls.enabled = true;
+        cue.root.visible = true;
+        cue.group.position.set(0, 0, 0);
+      }
+    }
+  }
+
+  // ── 4. Sync ball meshes to physics state ──
+  for (const ball of balls) {
+    if (ball.pocketed) continue;
+    ball.mesh.position.set(ball.x, BALL_Y, ball.z);
+    _updateBallRotation(ball, dt);
+  }
+
+  // ── 5. Cue ──
+  _updateCue(dt);
+
+  // ── 6. Lamp ──
+  _updateLamp(elapsedTime);
+
+  // ── 7. Camera ──
+  if (activeCamera === camera1) _updatePlayerCamera();
+
+  // ── 8. Render + UI ──
+  renderer.render(scene, activeCamera);
+  _updatePowerBar();
+}
+
+// ─── Level Completion ─────────────────────────────────────────────────────────
+function _onLevelComplete() {
+  gameState        = STATE.WAITING;
+  controls.enabled = false;
+
+  if (currentLevel + 1 >= NUM_LEVELS) {
+    gameWon = true;
+    _showWinScreen();
+  } else {
+    const nextLevel = currentLevel + 1;
+    _showLevelComplete(nextLevel);
+    _levelTransitionTimeout = setTimeout(function() {
+      _levelTransitionTimeout = null;
+      _startLevel(nextLevel);
+    }, 3000);
+  }
+}
+
+function _showLevelComplete(nextLevelIndex) {
+  const quips = [
+    "Warm-up's over. Things get serious. 😐",
+    "Pool shark spotted in the wild! 🦈",
+    "You're absolutely cooking! 🔥",
+  ];
+  const quip = quips[Math.min(currentLevel, quips.length - 1)];
+
+  const starsHTML = Array.from({ length: NUM_LEVELS }, function(_, i) {
+    return '<span style="' + (i <= currentLevel ? '' : 'opacity:0.18;filter:grayscale(1)') + '">⭐</span>';
+  }).join('');
+
+  overlayEl.style.display = 'flex';
+  overlayEl.innerHTML = `
+    <div class="overlay-card">
+      <span class="overlay-emoji spin">🎱</span>
+      <h2>Level ${currentLevel + 1} Complete!</h2>
+      <div class="overlay-stars">${starsHTML}</div>
+      <p class="overlay-quip">${quip}</p>
+      <p class="overlay-sub">LEVEL ${nextLevelIndex + 1} INCOMING&hellip;</p>
+    </div>`;
+
+  setTimeout(function() { overlayEl.style.display = 'none'; }, 2900);
+}
+
+function _showWinScreen() {
+  const confettiColors = [
+    '#f5d76e','#6effa0','#ff6b6b','#74b9ff',
+    '#a29bfe','#fd79a8','#ffeaa7','#00cec9',
+  ];
+
+  const confettiHTML = Array.from({ length: 40 }, function() {
+    const color    = confettiColors[Math.floor(Math.random() * confettiColors.length)];
+    const left     = (Math.random() * 100).toFixed(1);
+    const size     = Math.round(8 + Math.random() * 10);
+    const delay    = (Math.random() * 2.2).toFixed(2);
+    const duration = (2.2 + Math.random() * 2.0).toFixed(2);
+    const radius   = Math.random() > 0.45 ? '50%' : '3px';
+    return `<div class="confetti-piece" style="left:${left}%;width:${size}px;height:${size}px;background:${color};border-radius:${radius};animation-delay:${delay}s;animation-duration:${duration}s;"></div>`;
+  }).join('');
+
+  const starsHTML = Array.from({ length: NUM_LEVELS }, function() {
+    return '<span>⭐</span>';
+  }).join('');
+
+  overlayEl.style.display = 'flex';
+  overlayEl.innerHTML = `
+    ${confettiHTML}
+    <div class="overlay-card win">
+      <span class="overlay-emoji float">🏆</span>
+      <h1>YOU WIN!</h1>
+      <div class="overlay-stars">${starsHTML}</div>
+      <p>All ${NUM_LEVELS} levels conquered!</p>
+      <p class="overlay-sub-win">Time to rack 'em up again?</p>
+      <button id="btn-restart">🎱&nbsp; Play Again</button>
+    </div>`;
+
+  document.getElementById('btn-restart').addEventListener('click', function() {
+    overlayEl.style.display = 'none';
+    gameWon = false;
+    _resetGame();
+  });
 }
 
 // ─── Environment Map ──────────────────────────────────────────────────────────
-
-/**
- * Builds a PMREM env map from a dark procedural gradient.
- * Gives balls subtle IBL highlights without washing out the moody room lighting.
- * A soft warm highlight near the top stands in for the overhead lamp bar, so
- * the balls' clearcoat layer picks up a directional glint instead of just a
- * flat gradient reflection.
- */
 function _buildEnvMap() {
   const canvas  = document.createElement('canvas');
   canvas.width  = 512;
@@ -501,11 +628,6 @@ function _buildEnvMap() {
 }
 
 // ─── Night Sky Background ─────────────────────────────────────────────────────
-
-/**
- * Builds a 2048×1024 equirectangular canvas texture used as scene.background.
- * Shows through the window hole in the left wall, giving a parallax night sky.
- */
 function _buildNightSkyBackground() {
   const W = 2048, H = 1024;
   const canvas = document.createElement('canvas');
@@ -513,12 +635,11 @@ function _buildNightSkyBackground() {
   const ctx = canvas.getContext('2d');
 
   const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0,   '#030510');
-  grad.addColorStop(1,   '#080d20');
+  grad.addColorStop(0, '#030510');
+  grad.addColorStop(1, '#080d20');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  // Stars — crisp point-like dots
   for (let i = 0; i < 2000; i++) {
     const sx = Math.random() * W;
     const sy = Math.random() * H;
@@ -528,7 +649,6 @@ function _buildNightSkyBackground() {
     ctx.fillStyle = `rgba(${200 + wb}, ${200 + wb}, 255, ${a})`;
     ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
   }
-  // Brighter foreground stars
   for (let i = 0; i < 30; i++) {
     const sx = Math.random() * W;
     const sy = Math.random() * H;
@@ -536,7 +656,6 @@ function _buildNightSkyBackground() {
     ctx.beginPath(); ctx.arc(sx, sy, 1.2, 0, Math.PI * 2); ctx.fill();
   }
 
-  // Moon — positioned for the -X direction (U=0.75 → x=1536, V=0.62 → y=386)
   const MX = Math.round(0.75 * W), MY = Math.round((1 - 0.62) * H), MR = 42;
   const halo = ctx.createRadialGradient(MX, MY, MR * 0.8, MX, MY, MR * 3);
   halo.addColorStop(0, 'rgba(160, 185, 255, 0.22)');
@@ -562,86 +681,47 @@ function _buildNightSkyBackground() {
   return tex;
 }
 
-// ─── Render Loop ──────────────────────────────────────────────────────────────
+// ─── HUD / UI ─────────────────────────────────────────────────────────────────
+
 /**
- * Per-frame update, in order:
- *   1. Frame timing      — capped delta time, elapsed time for the lamp swing
- *   2. Input             — controls.update(), consume a fired shot if any
- *   3. Physics           — sub-stepped stepPhysics() while STRIKING/ROLLING,
- *                           newly-pocketed handling, ROLLING → WAITING transition
- *   4. Sync              — ball meshes follow physics state, rolling rotation
- *   5. Cue               — position/aim/pullback/strike animation
- *   6. Lamp swing
- *   7. Player-POV camera (only when active)
- *   8. Render + power-bar UI
+ * Caches all DOM element references needed for the HUD.
+ * The static HTML elements (bottom-ui, buttons, legend) are already in index.html.
+ * We only create the HUD panel and overlay here.
  */
-function animate() {
-  requestAnimationFrame(animate);
+function _buildHUD() {
+  hudLevelEl     = document.getElementById('hud-level');
+  hudBallsEl     = document.getElementById('hud-balls');
+  btnCamEl       = document.getElementById('btn-cam');
+  btnLampEl      = document.getElementById('btn-lamp');
+  powerFillEl    = document.getElementById('power-fill');
+  powerBarWrapEl = document.getElementById('power-bar-wrap');
+  overlayEl      = document.getElementById('overlay');
+}
 
-  // ── 1. Frame timing ──
-  const dt          = Math.min(clock.getDelta(), DT_CAP);
-  const elapsedTime = clock.elapsedTime;
+function _bindUIButtons() {
+  document.getElementById('btn-newconfig').addEventListener('click', _newConfiguration);
+  document.getElementById('btn-reset').addEventListener('click', _resetGame);
+  document.getElementById('btn-cam').addEventListener('click', _switchCamera);
+  document.getElementById('btn-lamp').addEventListener('click', _toggleLamp);
+}
 
-  // ── 2. Input ──
-  controls.update();
-  const shot = controls.consumeShot();
-  if (shot && gameState === STATE.WAITING) _fireShot(shot.power);
+function _updateHUD() {
+  if (hudLevelEl) hudLevelEl.textContent = `Level ${currentLevel + 1} / ${NUM_LEVELS}`;
+  if (hudBallsEl) hudBallsEl.textContent = `Balls remaining: ${ballsRemaining}`;
+  if (btnCamEl)   btnCamEl.textContent   = currentCameraIndex === 0 ? '\u{1F441} Player POV' : '\u{1F4F7} Overview';
+  if (btnLampEl)  btnLampEl.textContent  = lampOn ? '\u{1F311} Lamp OFF' : '\u{1F315} Lamp ON';
+}
 
-  // ── 3. Physics ──
-  if (gameState === STATE.ROLLING || gameState === STATE.STRIKING) {
-    let maxSpeedSq = 0;
-    for (const ball of balls) {
-      if (ball.pocketed) continue;
-      const speedSq = ball.vx * ball.vx + ball.vz * ball.vz;
-      if (speedSq > maxSpeedSq) maxSpeedSq = speedSq;
-    }
+function _updatePowerBar() {
+  const pct = controls.chargeAmount * 100;
+  powerFillEl.style.width = `${pct}%`;
 
-    // Sub-step at high speed so a fast ball can't tunnel through a cushion
-    // or another ball within a single frame.
-    const SUB_STEPS = maxSpeedSq < SUBSTEP_SAFE_SPEED_SQ ? 1 : 3;
-    const subDt     = dt / SUB_STEPS;
+  const hue = 120 - controls.chargeAmount * 120;
+  powerFillEl.style.background = `hsl(${hue}, 90%, 50%)`;
+  powerFillEl.style.boxShadow = controls.isCharging
+    ? `0 0 ${6 + controls.chargeAmount * 14}px hsl(${hue}, 90%, 60%)`
+    : 'none';
 
-    let newlyPocketed = [];
-    for (let s = 0; s < SUB_STEPS; s++) {
-      newlyPocketed = newlyPocketed.concat(stepPhysics(balls, subDt));
-    }
-
-    for (const b of newlyPocketed) {
-      b.mesh.visible = false;
-      if (b.isCueBall) {
-        setTimeout(() => _respawnCueBall(), 800);
-      }
-    }
-
-    if (gameState === STATE.ROLLING && isReadyForNextShot(balls)) {
-      const cueBall = balls.find(b => b.isCueBall);
-      if (cueBall && !cueBall.pocketed) {
-        snapToRest(balls);
-        gameState         = STATE.WAITING;
-        controls.enabled  = true;
-        cue.root.visible  = true;
-        cue.group.position.set(0, 0, 0);
-      }
-    }
-  }
-
-  // ── 4. Sync ball meshes to physics state ──
-  for (const ball of balls) {
-    if (ball.pocketed) continue;
-    ball.mesh.position.set(ball.x, BALL_Y, ball.z);
-    _updateBallRotation(ball, dt);
-  }
-
-  // ── 5. Cue ──
-  _updateCue(dt);
-
-  // ── 6. Lamp ──
-  _updateLamp(elapsedTime);
-
-  // ── 7. Camera ──
-  if (activeCamera === camera1) _updatePlayerCamera();
-
-  // ── 8. Render + UI ──
-  renderer.render(scene, activeCamera);
-  _updatePowerBar();
+  const tremble = controls.isCharging ? controls.chargeAmount * 3 : 0;
+  powerBarWrapEl.style.setProperty('--tremble', `${tremble}px`);
 }
