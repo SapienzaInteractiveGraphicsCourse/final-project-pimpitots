@@ -230,19 +230,28 @@ function _spawnBall(id, number, x, z, isCueBall) {
 /**
  * Builds a PMREM env map from a dark procedural gradient.
  * Gives balls subtle IBL highlights without washing out the moody room lighting.
+ * A soft warm highlight near the top stands in for the overhead lamp bar, so
+ * the balls' clearcoat layer picks up a directional glint instead of just a
+ * flat gradient reflection.
  */
 function _buildEnvMap() {
   const canvas  = document.createElement('canvas');
-  canvas.width  = 256;
-  canvas.height = 128;
+  canvas.width  = 512;
+  canvas.height = 256;
   const ctx  = canvas.getContext('2d');
-  const grad = ctx.createLinearGradient(0, 0, 0, 128);
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
   grad.addColorStop(0.00, '#2a2018');
   grad.addColorStop(0.30, '#10100e');
   grad.addColorStop(0.70, '#090810');
   grad.addColorStop(1.00, '#050408');
   ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 256, 128);
+  ctx.fillRect(0, 0, 512, 256);
+
+  const highlight = ctx.createRadialGradient(256, 40, 0, 256, 40, 140);
+  highlight.addColorStop(0.0, 'rgba(255, 224, 170, 0.55)');
+  highlight.addColorStop(1.0, 'rgba(255, 224, 170, 0)');
+  ctx.fillStyle = highlight;
+  ctx.fillRect(0, 0, 512, 256);
 
   const equiTex    = new THREE.CanvasTexture(canvas);
   equiTex.encoding = THREE.sRGBEncoding;

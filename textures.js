@@ -42,9 +42,10 @@ export function generateTextures() {
 
   // ── Ball ─────────────────────────────────────────────────────────────────
   // createBallTex is a per-ball factory (called once per ball, not shared).
-  // ballRoughTex is a single shared roughness map for all balls.
-  const createBallTex = (number, color) => _createBallTexture(number, color, 256);
-  const ballRoughTex  = _createBallRoughnessMap(256);
+  // ballRoughTex is a single shared roughness map for all balls. 512px keeps
+  // the number labels and stripe edges crisp at close camera distance.
+  const createBallTex = (number, color) => _createBallTexture(number, color, 512);
+  const ballRoughTex  = _createBallRoughnessMap(512);
 
   // ── Wall (PBR set "Plaster003" from ambientCG) ──────────────────────────
   const wallLoader   = new THREE.TextureLoader();

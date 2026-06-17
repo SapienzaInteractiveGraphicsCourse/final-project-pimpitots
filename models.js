@@ -463,10 +463,19 @@ export function createCueStick(scene) {
 }
 
 // ─── Ball Mesh Factory ────────────────────────────────────────────────────────
+// Assumption: a real billiard ball is two optical layers — a pigmented phenolic
+// resin core under a separate polished lacquer top-coat — so the ball material
+// uses MeshPhysicalMaterial's clearcoat lobe to reproduce that construction
+// instead of sourcing an external high-resolution PBR image set. An image set
+// would fix one texture per physical asset, which doesn't fit a ball whose
+// color and number are chosen per-instance from createBallTex; the clearcoat
+// layer reproduces the polished-resin look on top of that existing per-ball
+// texture pipeline.
 /**
- * Creates a pool ball Mesh with MeshStandardMaterial.
+ * Creates a pool ball Mesh with MeshPhysicalMaterial.
  * Uses a CanvasTexture for the color/diffuse map and a shared roughness map
- * for subtle specular variation (scuff specks under highlights).
+ * for subtle specular variation (scuff specks under highlights), plus a
+ * clearcoat lobe for the glossy lacquer finish of a real resin ball.
  *
  * @param {string}         color         - CSS color string (e.g. '#e8d96c')
  * @param {number}         number        - ball number (0 = cue ball)
@@ -478,15 +487,21 @@ export function createCueStick(scene) {
 export function createBallMesh(color, number, createBallTex, envMap, roughnessMap) {
   const colorTex = createBallTex(number, color);
 
-  const mat = new THREE.MeshStandardMaterial({
-    map:             colorTex,
-    roughnessMap:    roughnessMap || null,
-    roughness:       0.22,   // phenolic resin — shiny but not mirror
-    metalness:       0.0,
-    envMap:          envMap || null,
-    envMapIntensity: 0.6,
+  const mat = new THREE.MeshPhysicalMaterial({
+    map:                colorTex,
+    roughnessMap:       roughnessMap || null,
+    roughness:          0.15,   // pigmented resin core — glossy, fine scuff variation from roughnessMap
+    metalness:          0.0,    // resin is a dielectric, never metallic
+    clearcoat:          1.0,    // full polished lacquer top-coat, as on a real billiard ball
+    clearcoatRoughness: 0.05,   // near-mirror clearcoat — tight, bright specular highlights
+    envMap:             envMap || null,
+    envMapIntensity:    0.8,
   });
 
+  // 32x32 segments already keep per-face deviation from a true sphere under a
+  // millimeter at this radius — invisible at any camera distance used in the
+  // scene, so the silhouette reads as perfectly round without spending extra
+  // triangles on smoothness that can't be seen.
   const geo  = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow    = true;
