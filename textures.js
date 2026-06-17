@@ -17,7 +17,7 @@ import * as THREE from 'three';
  * Generates all textures used by the room and table surfaces.
  * Returns a plain object keyed by surface type. Each entry may have:
  * map, normalMap, roughnessMap, aoMap.
- * @returns {{ felt: {map, normalMap, roughnessMap}, wood: {map, normalMap, roughnessMap}, floor: {map, normalMap, roughnessMap, aoMap}, wall: {map}, ball: {roughnessMap}, createBallTex: Function }}
+ * @returns {{ felt: {map, normalMap, roughnessMap}, wood: {map, normalMap, roughnessMap}, floor: {map, normalMap, roughnessMap, aoMap}, wall: {map, normalMap, roughnessMap}, ball: {roughnessMap}, createBallTex: Function }}
  */
 export function generateTextures() {
   // ── Felt (table surface) ────────────────────────────────────────────────
@@ -46,8 +46,12 @@ export function generateTextures() {
   const createBallTex = (number, color) => _createBallTexture(number, color, 256);
   const ballRoughTex  = _createBallRoughnessMap(256);
 
-  // ── Wall ────────────────────────────────────────────────────────────────
-  const wallColorTex    = _createWallTexture(512);
+  // ── Wall (PBR set "Plaster003" from ambientCG) ──────────────────────────
+  const wallLoader   = new THREE.TextureLoader();
+  const wallColorTex = wallLoader.load('./textures/wall/color.jpg');
+  const wallNormTex  = wallLoader.load('./textures/wall/normalgl.jpg');
+  const wallRoughTex = wallLoader.load('./textures/wall/roughness.jpg');
+  wallColorTex.encoding = THREE.sRGBEncoding;
 
   // Apply repeat wrapping where needed
   [feltColorTex, feltNormalTex, feltRoughTex].forEach(t => {
@@ -62,7 +66,7 @@ export function generateTextures() {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.repeat.set(10, 8); // tile the 1m-ish photo plank texture across the 22x18 room floor
   });
-  [wallColorTex].forEach(t => {
+  [wallColorTex, wallNormTex, wallRoughTex].forEach(t => {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.repeat.set(4, 2);
   });
@@ -71,7 +75,7 @@ export function generateTextures() {
     felt:         { map: feltColorTex,  normalMap: feltNormalTex,  roughnessMap: feltRoughTex  },
     wood:         { map: woodColorTex,  normalMap: woodNormalTex,  roughnessMap: woodRoughTex  },
     floor:        { map: floorColorTex, normalMap: floorNormalTex, roughnessMap: floorRoughTex, aoMap: floorAOTex },
-    wall:         { map: wallColorTex },
+    wall:         { map: wallColorTex, normalMap: wallNormTex, roughnessMap: wallRoughTex },
     ball:         { roughnessMap: ballRoughTex },
     createBallTex,
   };
@@ -250,20 +254,3 @@ function _createBallRoughnessMap(size) {
   return new THREE.CanvasTexture(canvas);
 }
 
-// ── Wall texture: light plaster with subtle variation ─────────────────────────
-function _createWallTexture(size) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  const img = ctx.createImageData(size, size);
-  const d   = img.data;
-  for (let i = 0; i < size * size; i++) {
-    const base = 55 + Math.floor(Math.random() * 12);
-    d[i*4]   = base + 10;  // R
-    d[i*4+1] = base + 8;   // G
-    d[i*4+2] = base;        // B (slightly warm tone)
-    d[i*4+3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
-  return new THREE.CanvasTexture(canvas);
-}
