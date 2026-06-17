@@ -189,6 +189,16 @@ function _createFeltRoughnessMap(size) {
  * Creates a canvas texture for one pool ball.
  * Balls 9–15 get a white stripe band across the equator.
  * Ball 0 (cue ball) gets no number label.
+ *
+ * The number badge (white circle + digit) is drawn pre-squeezed horizontally
+ * before being centered on the canvas. SphereGeometry's default UV layout
+ * wraps a full 360° of longitude across u but only 180° of latitude across v,
+ * so at the equator — exactly where this badge lands — one unit of u covers
+ * twice the physical distance of one unit of v. A circle drawn at normal
+ * proportions would therefore appear twice as wide as it is tall once wrapped
+ * onto the ball; squeezing the badge to half width before drawing cancels
+ * that stretch so it reads as a true, round circle on the sphere.
+ *
  * @param {number} number  - 0 = cue ball, 1–15 = numbered balls
  * @param {string} color   - CSS color for the ball's base
  * @param {number} size    - canvas side length in pixels
@@ -210,19 +220,28 @@ function _createBallTexture(number, color, size) {
 
   // Number label (skip cue ball)
   if (number > 0) {
-    const fontSize = Math.floor(size * 0.38);
-    ctx.font        = `bold ${fontSize}px sans-serif`;
-    ctx.textAlign   = 'center';
-    ctx.textBaseline = 'middle';
+    const EQUATOR_U_STRETCH = 2;               // u covers 2x the arc length of v at the equator (phiLength=2π vs thetaLength=π)
+    const badgeSqueeze      = 1 / EQUATOR_U_STRETCH;
+    const fontSize          = Math.floor(size * 0.25);
+    const badgeRadius       = size * 0.20;
+
+    ctx.save();
+    ctx.translate(size / 2, size / 2);
+    ctx.scale(badgeSqueeze, 1); // pre-squeeze horizontally; the sphere's u-stretch restores true proportions
 
     // White circle background behind number for readability on dark balls
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(size / 2, size / 2, fontSize * 0.62, 0, Math.PI * 2);
+    ctx.arc(0, 0, badgeRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = '#111111';
-    ctx.fillText(String(number), size / 2, size / 2 + fontSize * 0.04);
+    ctx.font         = `bold ${fontSize}px Arial, sans-serif`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = '#111111';
+    ctx.fillText(String(number), 0, 0);
+
+    ctx.restore();
   }
 
   const tex = new THREE.CanvasTexture(canvas);
