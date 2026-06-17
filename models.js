@@ -43,10 +43,12 @@ export function createRoom(scene, texMap) {
   group.name  = 'room';
 
   const wallMat = new THREE.MeshStandardMaterial({
-    map:       texMap.wall.map,
-    roughness: 0.85,
-    metalness: 0.0,
-    side:      THREE.BackSide, // render inside faces of the room box
+    map:          texMap.wall.map,
+    normalMap:    texMap.wall.normalMap,
+    roughnessMap: texMap.wall.roughnessMap,
+    roughness:    0.85,
+    metalness:    0.0,
+    side:         THREE.BackSide, // render inside faces of the room box
   });
 
   const floorMat = new THREE.MeshStandardMaterial({
@@ -78,6 +80,35 @@ export function createRoom(scene, texMap) {
   floorMesh.receiveShadow = true;
   floorMesh.name = 'floor';
   group.add(floorMesh);
+
+  // ── Skirting boards ──────────────────────────────────────────────────────
+  // Dark wood strip running around the base of all four walls.
+  const SK_H = 0.20;  // height
+  const SK_D = 0.04;  // protrusion from wall
+
+  const skirtMat = new THREE.MeshStandardMaterial({
+    color:     0x1a1008,  // near-black dark mahogany
+    roughness: 0.6,
+    metalness: 0.0,
+  });
+
+  // Each entry: [boxWidth, boxDepth, centerX, centerZ, rotationY]
+  const skirtDefs = [
+    [ROOM_W,              SK_D, 0,                     -(ROOM_D / 2 - SK_D / 2), 0           ],  // front  (−Z)
+    [ROOM_W,              SK_D, 0,                      (ROOM_D / 2 - SK_D / 2), 0           ],  // back   (+Z)
+    [ROOM_D - SK_D * 2,   SK_D, -(ROOM_W / 2 - SK_D / 2), 0,                    Math.PI / 2 ],  // left   (−X)
+    [ROOM_D - SK_D * 2,   SK_D,  (ROOM_W / 2 - SK_D / 2), 0,                    Math.PI / 2 ],  // right  (+X)
+  ];
+
+  for (const [w, d, x, z, ry] of skirtDefs) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, SK_H, d), skirtMat);
+    mesh.position.set(x, SK_H / 2, z);
+    mesh.rotation.y    = ry;
+    mesh.receiveShadow = true;
+    mesh.castShadow    = true;
+    mesh.name          = 'skirting';
+    group.add(mesh);
+  }
 
   scene.add(group);
   return { group };
