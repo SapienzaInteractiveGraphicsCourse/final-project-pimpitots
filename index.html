@@ -19,6 +19,8 @@
   </script>
 
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap');
+
     /* --- Reset --- */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -26,6 +28,8 @@
       width: 100%; height: 100%;
       overflow: hidden;
       background: #111;
+      font-family: 'Nunito', 'Segoe UI', Arial, sans-serif;
+      color: #eee;
     }
 
     /* --- WebGL canvas: full-viewport --- */
@@ -37,87 +41,30 @@
       cursor: crosshair;
     }
 
-    /* --- Shared button style --- */
-    .ui-btn {
+    /* ── Bottom UI — power bar + button bar stacked ── */
+    #bottom-ui {
       position: fixed;
-      background: rgba(0, 0, 0, 0.65);
-      color: #eee;
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      border-radius: 12px;
-      padding: 12px 22px;
-      font-size: 16px;
-      font-weight: 700;
-      font-family: inherit;
-      cursor: pointer;
-      backdrop-filter: blur(4px);
-      transition: all 0.15s ease;
-      letter-spacing: 0.3px;
-    }
-
-    /* --- Lamp toggle button --- */
-    #btn-lamp {
-      bottom: 24px;
+      bottom: 20px;
       left: 50%;
       transform: translateX(-50%);
-    }
-    #btn-lamp:hover {
-      background: rgba(255, 215, 60, 0.18);
-      border-color: rgba(255, 215, 60, 0.70);
-      box-shadow: 0 0 16px rgba(255, 215, 60, 0.45);
-      transform: translateX(-50%) scale(1.06);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
     }
 
-    /* --- Camera toggle button --- */
-    #btn-cam {
-      bottom: 24px;
-      left: 24px;
-    }
-    #btn-cam:hover {
-      background: rgba(80, 160, 255, 0.18);
-      border-color: rgba(80, 160, 255, 0.70);
-      box-shadow: 0 0 16px rgba(80, 160, 255, 0.35);
-      transform: scale(1.06);
-    }
-
-    /* --- Rerack button --- */
-    #btn-rerack {
-      bottom: 24px;
-      right: 24px;
-    }
-    #btn-rerack:hover {
-      background: rgba(60, 200, 120, 0.18);
-      border-color: rgba(60, 200, 120, 0.70);
-      box-shadow: 0 0 16px rgba(60, 200, 120, 0.35);
-      transform: scale(1.06);
-    }
-
-    /* --- Side view toggle button --- */
-    #btn-side {
-      top: 24px;
-      right: 24px;
-    }
-    #btn-side:hover {
-      background: rgba(180, 100, 255, 0.18);
-      border-color: rgba(180, 100, 255, 0.70);
-      box-shadow: 0 0 16px rgba(180, 100, 255, 0.35);
-      transform: scale(1.06);
-    }
-
-    /* --- Power bar (charge level for the next shot) --- */
     @keyframes tremble {
-      0%   { transform: translateX(var(--tremble)); }
-      20%  { transform: translateX(calc(var(--tremble) * -1)); }
-      40%  { transform: translateX(var(--tremble)); }
-      60%  { transform: translateX(calc(var(--tremble) * -1)); }
-      80%  { transform: translateX(var(--tremble)); }
+      0%   { transform: translateX(0); }
+      20%  { transform: translateX(var(--tremble)); }
+      40%  { transform: translateX(calc(var(--tremble) * -1)); }
+      60%  { transform: translateX(calc(var(--tremble) * 0.6)); }
+      80%  { transform: translateX(calc(var(--tremble) * -0.6)); }
       100% { transform: translateX(0); }
     }
+
+    /* Power bar — styled like a button, glows with the fill color (set via JS) */
     #power-bar-wrap {
       --tremble: 0px;
-      position: fixed;
-      bottom: 88px;
-      left: 50%;
-      transform: translateX(-50%);
       display: flex;
       align-items: center;
       gap: 10px;
@@ -147,7 +94,55 @@
       transition: box-shadow 0.1s;
     }
 
-    /* --- Controls legend --- */
+    /* ── Button bar ── */
+    #button-bar {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    #button-bar button {
+      background: rgba(0, 0, 0, 0.65);
+      color: #eee;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 12px;
+      padding: 12px 22px;
+      font-size: 16px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+      transition: all 0.15s ease;
+      letter-spacing: 0.3px;
+    }
+
+    /* Each button gets its own accent color on hover */
+    #btn-newconfig:hover {
+      background: rgba(0, 210, 200, 0.18);
+      border-color: rgba(0, 210, 200, 0.70);
+      box-shadow: 0 0 16px rgba(0, 210, 200, 0.45);
+      transform: scale(1.06);
+    }
+    #btn-reset:hover {
+      background: rgba(255, 165, 50, 0.18);
+      border-color: rgba(255, 165, 50, 0.70);
+      box-shadow: 0 0 16px rgba(255, 165, 50, 0.45);
+      transform: scale(1.06);
+    }
+    #btn-cam:hover {
+      background: rgba(120, 140, 255, 0.18);
+      border-color: rgba(120, 140, 255, 0.70);
+      box-shadow: 0 0 16px rgba(120, 140, 255, 0.45);
+      transform: scale(1.06);
+    }
+    #btn-lamp:hover {
+      background: rgba(255, 215, 60, 0.18);
+      border-color: rgba(255, 215, 60, 0.70);
+      box-shadow: 0 0 16px rgba(255, 215, 60, 0.45);
+      transform: scale(1.06);
+    }
+
+    /* --- Controls legend — bottom-right --- */
     #legend {
       position: fixed;
       bottom: 14px;
@@ -164,26 +159,30 @@
       color: #bbb;
     }
     #legend b {
+      font-size: 13px;
+      font-weight: 800;
+      color: #eee;
       display: block;
       margin-bottom: 8px;
-      color: #eee;
-      font-size: 13px;
+      letter-spacing: 0.5px;
     }
     #legend-grid {
       display: grid;
       grid-template-columns: auto auto;
       gap: 5px 24px;
     }
+    #legend-grid span { white-space: nowrap; }
     #legend kbd {
       display: inline-block;
       background: rgba(255, 255, 255, 0.12);
       border: 1px solid rgba(255, 255, 255, 0.28);
       border-radius: 5px;
       padding: 1px 7px;
-      font-size: 12px;
+      font-size: 11px;
       font-family: inherit;
       font-weight: 700;
       color: #eee;
+      margin-right: 2px;
     }
   </style>
 </head>
@@ -191,33 +190,34 @@
   <!-- Full-viewport WebGL canvas -->
   <canvas id="glCanvas"></canvas>
 
-  <!-- Power bar: fills as the cue charges, color shifts green to red -->
-  <div id="power-bar-wrap">
-    <span>Power</span>
-    <div id="power-bar">
-      <div id="power-fill"></div>
+  <!-- Bottom-center UI: power bar above button row -->
+  <div id="bottom-ui">
+    <div id="power-bar-wrap">
+      <span>Power</span>
+      <div id="power-bar">
+        <div id="power-fill"></div>
+      </div>
+    </div>
+    <div id="button-bar">
+      <button id="btn-newconfig">🎱 New Configuration</button>
+      <button id="btn-reset">↺ Reset Balls</button>
+      <button id="btn-cam">👁 Player POV</button>
+      <button id="btn-lamp">🌑 Lamp OFF</button>
     </div>
   </div>
 
-  <!-- Camera toggle (C key) -->
-  <button id="btn-cam" class="ui-btn">👁 Player POV</button>
-
-  <!-- Lamp on/off toggle (L key) -->
-  <button id="btn-lamp" class="ui-btn">🌑 Lamp OFF</button>
-
-  <!-- Rerack: new random ball layout -->
-  <button id="btn-rerack" class="ui-btn">🎱 New Configuration</button>
-
-  <!-- Side view toggle: profile shot of the table and lamp from the right wall -->
-  <button id="btn-side" class="ui-btn">👀 Side View</button>
-
-  <!-- Controls legend -->
+  <!-- Controls legend — bottom-right -->
   <div id="legend">
     <b>Controls</b>
     <div id="legend-grid">
-      <kbd>drag</kbd> Aim
-      <kbd>hold</kbd> Charge
-      <kbd>release</kbd> Shoot
+      <span><kbd>drag</kbd> Aim</span>
+      <span><kbd>hold</kbd> Charge</span>
+      <span><kbd>release</kbd> Shoot</span>
+      <span><kbd>scroll</kbd> Zoom (POV)</span>
+      <span><kbd>L</kbd> Lamp</span>
+      <span><kbd>C / V</kbd> Camera</span>
+      <span><kbd>R</kbd> Reset</span>
+      <span><kbd>N</kbd> New config</span>
     </div>
   </div>
 

@@ -36,13 +36,6 @@ const LAMP_SWING_SPEED = 0.7;   // swing frequency (rad/s) — ~9 s full cycle
 const CAM_DIST_BEHIND = 4.5;    // distance behind cue ball for player-POV camera
 const CAM_HEIGHT_POV  = 1.6;    // camera height above table for player POV
 
-// Side view: a fixed profile shot looking back along the table's long axis
-// (X) from the right wall (+X, the wall opposite the window — see
-// createRoom in models.js), framing both the table and the swinging lamp.
-const SIDE_VIEW_X        = 9.5;  // camera X — well clear of the right wall at X = ROOM_W/2 = 11
-const SIDE_VIEW_Y        = 3.4;  // camera height, level with the look-at target for an undistorted profile
-const SIDE_VIEW_TARGET_Y = 3.4;  // look-at height, roughly midway between the table surface (0.76) and the lamp bar (~6.0)
-
 const STRIKE_FORWARD_TIME = 0.08; // seconds for the cue to snap forward into the ball
 const STRIKE_SHOW_TIME    = 0.25; // seconds the cue stays visible after the strike begins
 
@@ -78,17 +71,18 @@ const BALL_COLORS = [
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
 let renderer, scene, clock, lamp, texMap;
-let camera0, camera1, camera2, activeCamera;  // 0 = overview, 1 = player POV, 2 = side view
+let camera0, camera1, activeCamera;  // 0 = overview, 1 = player POV
 let currentCameraIndex = 0;
-let sideViewOn = false;              // true while camera2 is showing
-let preSideViewCamera = null;        // camera0 or camera1, whichever was active before the side view was opened
 let cue;                             // { root, group, tipMesh, shaftMesh, gripMesh }
 let lampOn    = true;
 let ballEnvMap;
 let balls     = [];                  // [{ id, isCueBall, color, number, x, z, vx, vz, pocketed, mesh }]
-let btnLampEl, btnRerackEl, btnCamEl, btnSideEl;
+let btnLampEl, btnCamEl;
 let powerFillEl, powerBarWrapEl;
 let controls;
+
+// Mutable camera-distance for player-POV zoom (mouse wheel / touchpad scroll)
+let camDistBehind = CAM_DIST_BEHIND; // initialized from constant, adjusted by _onWheel
 
 const _ballScreenPos = new THREE.Vector3(); // scratch vector for cursor-targeted aiming
 
@@ -104,6 +98,9 @@ let strikeTimer          = 0; // seconds elapsed since the current strike began
 let strikeStartPullback  = 0; // cue.group.position.x at the moment the strike began
 let strikeOriginX        = 0; // cue ball x position at the moment the strike began
 let strikeOriginZ        = 0; // cue ball z position at the moment the strike began
+let strikePendingPhi     = 0; // cue aim angle captured at shot-fire
+let strikePendingPower   = 0; // shot power captured at shot-fire
+let strikeHitApplied     = false; // true once cue-ball velocity has been applied this strike
 
 // ─── Entry Point ──────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', init);
@@ -137,13 +134,6 @@ function init() {
 
   // Camera 1: player POV — low behind the cue ball, updated every frame.
   camera1 = new THREE.PerspectiveCamera(58, aspect, 0.05, 100);
-
-  // Camera 2: side view — fixed profile shot from the right wall, looking
-  // back along -X so the lamp's Y/Z swing arc reads as clear screen motion
-  // instead of being foreshortened the way the other two cameras see it.
-  camera2 = new THREE.PerspectiveCamera(52, aspect, 0.1, 100);
-  camera2.position.set(SIDE_VIEW_X, SIDE_VIEW_Y, 0);
-  camera2.lookAt(0, SIDE_VIEW_TARGET_Y, 0);
 
   activeCamera = camera0;
 
@@ -181,15 +171,14 @@ function init() {
 
   // ── UI ──
   btnLampEl      = document.getElementById('btn-lamp');
-  btnRerackEl    = document.getElementById('btn-rerack');
   btnCamEl       = document.getElementById('btn-cam');
-  btnSideEl      = document.getElementById('btn-side');
   powerFillEl    = document.getElementById('power-fill');
   powerBarWrapEl = document.getElementById('power-bar-wrap');
+  document.getElementById('btn-newconfig').addEventListener('click', _spawnAllBalls);
+  document.getElementById('btn-reset').addEventListener('click', _spawnAllBalls);
   btnLampEl.addEventListener('click', _toggleLamp);
-  btnRerackEl.addEventListener('click', _spawnAllBalls);
   btnCamEl.addEventListener('click', _switchCamera);
-  btnSideEl.addEventListener('click', _toggleSideView);
+  canvas.addEventListener('wheel', _onWheel, { passive: false });
 
   // ── Events ──
   window.addEventListener('resize', _onResize);
@@ -203,7 +192,6 @@ function _onResize() {
   const aspect = window.innerWidth / window.innerHeight;
   camera0.aspect = aspect; camera0.updateProjectionMatrix();
   camera1.aspect = aspect; camera1.updateProjectionMatrix();
-  camera2.aspect = aspect; camera2.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
@@ -211,7 +199,9 @@ function _onResize() {
 function _onKeyDown(e) {
   const k = e.key.toUpperCase();
   if (k === 'L') _toggleLamp();
-  if (k === 'C') _switchCamera();
+  if (k === 'C' || k === 'V') _switchCamera();
+  if (k === 'R') _spawnAllBalls();
+  if (k === 'N') _spawnAllBalls();
 }
 
 // ─── Lamp ─────────────────────────────────────────────────────────────────────
@@ -233,34 +223,13 @@ function _toggleLamp() {
 // ─── Camera ───────────────────────────────────────────────────────────────────
 
 /**
- * Toggles between the two camera views and updates the button label.
- * No-ops while the side view is open — that view owns activeCamera until
- * its own button restores whichever of these two was showing beforehand.
+ * Toggles between overview (camera0) and player-POV (camera1).
  */
 function _switchCamera() {
-  if (sideViewOn) return;
-
   currentCameraIndex = (currentCameraIndex + 1) % 2;
   activeCamera = currentCameraIndex === 0 ? camera0 : camera1;
   // Button shows the destination (where you'll go on the next click)
   btnCamEl.textContent = currentCameraIndex === 0 ? '\u{1F441} Player POV' : '\u{1F4F7} Overview';
-}
-
-/**
- * Opens or closes the fixed side view. Opening remembers whichever of
- * camera0/camera1 was active so closing can restore it exactly; the
- * Overview/Player-POV toggle above is left untouched either way.
- */
-function _toggleSideView() {
-  sideViewOn = !sideViewOn;
-  if (sideViewOn) {
-    preSideViewCamera = activeCamera;
-    activeCamera      = camera2;
-    btnSideEl.textContent = '\u{21A9}\u{FE0F} Back to Scene';
-  } else {
-    activeCamera = preSideViewCamera;
-    btnSideEl.textContent = '\u{1F440} Side View';
-  }
 }
 
 /**
@@ -276,13 +245,36 @@ function _updatePlayerCamera() {
   const cz  = cueBall.mesh.position.z;
   const phi = cue.root.rotation.y; // aim angle (0 = facing +X direction)
 
-  // Place camera behind the ball in the cue direction
+  // Place camera behind the ball in the cue direction (distance driven by scroll zoom)
   camera1.position.set(
-    cx + Math.cos(phi) * CAM_DIST_BEHIND,
+    cx + Math.cos(phi) * camDistBehind,
     BALL_Y + CAM_HEIGHT_POV,
-    cz - Math.sin(phi) * CAM_DIST_BEHIND,
+    cz - Math.sin(phi) * camDistBehind,
   );
   camera1.lookAt(cx, BALL_Y + 0.05, cz);
+}
+
+// ─── Player-POV Zoom (mouse wheel / touchpad) ─────────────────────────────────
+/**
+ * Adjusts camDistBehind when the user scrolls over the canvas.
+ * Only active while the player-POV camera (camera1) is the active camera.
+ * Normalises deltaY across deltaMode values so both mouse wheels (which
+ * typically report deltaMode=1, ~3 lines per tick) and trackpads (deltaMode=0,
+ * finer pixel-level increments) produce a comparable step size.
+ *
+ * Zoom range: 1.5 (tight close-up) – 10.0 (pulled far back).
+ * Pinch-to-zoom on a touchpad fires as wheel events with ctrlKey=true;
+ * the same delta normalisation handles it correctly.
+ */
+function _onWheel(e) {
+  if (activeCamera !== camera1) return; // zoom only in player-POV mode
+  e.preventDefault();
+
+  // deltaMode 0 = pixels (trackpad), 1 = lines (mouse wheel), 2 = pages
+  const step = e.deltaMode === 0 ? e.deltaY * 0.005 : e.deltaY * 0.15;
+  // Max 6.0: with ball at table edge (±4.30 X, ±2.05 Z) and room walls at ±11 X / ±9 Z,
+  // a 6-unit distance keeps the camera safely inside the room in all aim directions.
+  camDistBehind = Math.max(1.5, Math.min(6.0, camDistBehind + step));
 }
 
 // ─── Ball Spawning ────────────────────────────────────────────────────────────
@@ -346,16 +338,19 @@ function _fireShot(power) {
   const cueBall = balls.find(b => b.isCueBall && !b.pocketed);
   if (!cueBall) return;
 
-  const phi = cue.root.rotation.y;
-  cueBall.vx = -Math.cos(phi) * power;
-  cueBall.vz =  Math.sin(phi) * power;
+  // Defer velocity — applied inside _updateCue once the cue tip visually
+  // crosses the ball surface, so the ball doesn't fly away before the
+  // stick is seen to make contact.
+  strikePendingPhi    = cue.root.rotation.y;
+  strikePendingPower  = power;
+  strikeHitApplied    = false;
 
   strikeStartPullback = cue.group.position.x;
-  strikeOriginX        = cueBall.x;
-  strikeOriginZ        = cueBall.z;
-  strikeTimer          = 0;
-  gameState            = STATE.STRIKING;
-  controls.enabled     = false;
+  strikeOriginX       = cueBall.x;
+  strikeOriginZ       = cueBall.z;
+  strikeTimer         = 0;
+  gameState           = STATE.STRIKING;
+  controls.enabled    = false;
 }
 
 // ─── Cue Update ───────────────────────────────────────────────────────────────
@@ -399,8 +394,24 @@ function _updateCue(dt) {
   } else if (gameState === STATE.STRIKING) {
     strikeTimer += dt;
     const t = Math.min(strikeTimer / STRIKE_FORWARD_TIME, 1.0);
-    const targetX = -0.05;
+    // Drive the tip all the way to the ball centre for an unambiguous visual hit.
+    // BALL_RADIUS = 0.18 → at targetX = -BALL_RADIUS the tip's near-face sits at
+    // x = BALL_RADIUS + targetX = 0, i.e. the ball's centre.
+    const targetX = -BALL_RADIUS;
     cue.group.position.x = strikeStartPullback + (targetX - strikeStartPullback) * t;
+
+    // Apply cue-ball velocity the first frame the cue tip's near-face reaches
+    // the ball surface: cueGroup.x ≤ 0  ⟺  tipFace ≤ BALL_RADIUS (ball surface).
+    // Keeping the velocity deferred until this moment prevents the ball from
+    // flying away while the cue stick is still mid-approach.
+    if (!strikeHitApplied && cue.group.position.x <= 0) {
+      const cueBall = balls.find(b => b.isCueBall && !b.pocketed);
+      if (cueBall) {
+        cueBall.vx = -Math.cos(strikePendingPhi) * strikePendingPower;
+        cueBall.vz =  Math.sin(strikePendingPhi) * strikePendingPower;
+      }
+      strikeHitApplied = true;
+    }
 
     if (strikeTimer >= STRIKE_SHOW_TIME) {
       cue.root.visible = false;
