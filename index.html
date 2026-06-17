@@ -34,6 +34,7 @@
       position: fixed;
       top: 0; left: 0;
       width: 100%; height: 100%;
+      cursor: crosshair;
     }
 
     /* --- Shared button style --- */
@@ -89,11 +90,114 @@
       box-shadow: 0 0 16px rgba(60, 200, 120, 0.35);
       transform: scale(1.06);
     }
+
+    /* --- Side view toggle button --- */
+    #btn-side {
+      top: 24px;
+      right: 24px;
+    }
+    #btn-side:hover {
+      background: rgba(180, 100, 255, 0.18);
+      border-color: rgba(180, 100, 255, 0.70);
+      box-shadow: 0 0 16px rgba(180, 100, 255, 0.35);
+      transform: scale(1.06);
+    }
+
+    /* --- Power bar (charge level for the next shot) --- */
+    @keyframes tremble {
+      0%   { transform: translateX(var(--tremble)); }
+      20%  { transform: translateX(calc(var(--tremble) * -1)); }
+      40%  { transform: translateX(var(--tremble)); }
+      60%  { transform: translateX(calc(var(--tremble) * -1)); }
+      80%  { transform: translateX(var(--tremble)); }
+      100% { transform: translateX(0); }
+    }
+    #power-bar-wrap {
+      --tremble: 0px;
+      position: fixed;
+      bottom: 88px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #eee;
+      width: 460px;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(4px);
+      border: 1px solid rgba(255, 255, 255, 0.20);
+      border-radius: 12px;
+      padding: 10px 18px;
+      animation: tremble 0.12s linear infinite;
+    }
+    #power-bar {
+      flex: 1;
+      height: 14px;
+      background: rgba(255, 255, 255, 0.10);
+      border-radius: 7px;
+      overflow: hidden;
+    }
+    #power-fill {
+      height: 100%;
+      width: 0%;
+      background: hsl(120, 90%, 50%);
+      border-radius: 7px;
+      transition: box-shadow 0.1s;
+    }
+
+    /* --- Controls legend --- */
+    #legend {
+      position: fixed;
+      bottom: 14px;
+      right: 14px;
+      background: rgba(0, 0, 0, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.20);
+      border-radius: 12px;
+      padding: 12px 18px;
+      backdrop-filter: blur(4px);
+      pointer-events: none;
+      user-select: none;
+      font-size: 13px;
+      font-weight: 600;
+      color: #bbb;
+    }
+    #legend b {
+      display: block;
+      margin-bottom: 8px;
+      color: #eee;
+      font-size: 13px;
+    }
+    #legend-grid {
+      display: grid;
+      grid-template-columns: auto auto;
+      gap: 5px 24px;
+    }
+    #legend kbd {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      border-radius: 5px;
+      padding: 1px 7px;
+      font-size: 12px;
+      font-family: inherit;
+      font-weight: 700;
+      color: #eee;
+    }
   </style>
 </head>
 <body>
   <!-- Full-viewport WebGL canvas -->
   <canvas id="glCanvas"></canvas>
+
+  <!-- Power bar: fills as the cue charges, color shifts green to red -->
+  <div id="power-bar-wrap">
+    <span>Power</span>
+    <div id="power-bar">
+      <div id="power-fill"></div>
+    </div>
+  </div>
 
   <!-- Camera toggle (C key) -->
   <button id="btn-cam" class="ui-btn">👁 Player POV</button>
@@ -104,11 +208,25 @@
   <!-- Rerack: new random ball layout -->
   <button id="btn-rerack" class="ui-btn">🎱 New Configuration</button>
 
+  <!-- Side view toggle: profile shot of the table and lamp from the right wall -->
+  <button id="btn-side" class="ui-btn">👀 Side View</button>
+
+  <!-- Controls legend -->
+  <div id="legend">
+    <b>Controls</b>
+    <div id="legend-grid">
+      <kbd>drag</kbd> Aim
+      <kbd>hold</kbd> Charge
+      <kbd>release</kbd> Shoot
+    </div>
+  </div>
+
   <!--
     Main entry point loaded as an ES module.
     All JS files use `import * as THREE from 'three'` resolved via the
-    importmap above.
+    importmap above. Module-relative imports inside main.js (./physics.js,
+    ./controls.js, etc.) resolve against this file's own location.
   -->
-  <script type="module" src="main.js"></script>
+  <script type="module" src="source/main.js"></script>
 </body>
 </html>

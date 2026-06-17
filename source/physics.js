@@ -36,7 +36,6 @@ export const BALL_RADIUS   = 0.18;  // pool ball radius in scene units
 export const POCKET_RADIUS = 0.32;  // pocket capture radius
 
 const FRICTION_60FPS  = 0.982;        // velocity multiplier per frame at 60 fps (rolling friction)
-const SPIN_DECAY_60   = 0.97;         // spin (angular) decay per frame at 60 fps (unused directly — handled in main)
 const RESTITUTION_CU  = 0.72;         // ball-cushion coefficient of restitution (energy retained)
 const RESTITUTION_BB  = 0.96;         // ball-ball   coefficient of restitution
 const MIN_SPEED_SQ    = 0.00015 * 0.00015; // squared speed below which ball is considered stopped

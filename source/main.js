@@ -1,21 +1,33 @@
 /**
  * main.js
  * ─────────────────────────────────────────────────────────────────────────────
- * Responsibility: engine bootstrap — renderer, scene, cameras, render loop.
+ * Responsibility: engine bootstrap — renderer, scene, cameras, cue/physics
+ * gameplay loop, and the power-bar UI.
  *
  * Execution flow:
  *   init() → generateTextures() → createRoom → createTable → createLamp →
- *     createCueStick → _spawnAllBalls() → animate()
+ *     createCueStick → Controls(canvas) → _spawnAllBalls() → animate()
+ *
+ * Gameplay state machine (gameState):
+ *   WAITING  — cue follows the cursor, charge bar is live, a shot may fire
+ *   STRIKING — cue snaps forward through its short strike animation
+ *   ROLLING  — physics is stepping every frame; cue is hidden
  *
  * Camera views (toggle with C key or button):
  *   0 = Overview  — wide overhead shot of the whole table
  *   1 = Player POV — low angle behind the cue ball, updated every frame
+ *
+ * A third camera (Side View) is independent of the toggle above: its own
+ * button shows a fixed profile shot of the table and lamp from the right
+ * wall, then restores whichever of the two cameras above was active when
+ * pressed again.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
 import { createRoom, createTable, createLamp, createCueStick, createBallMesh, TABLE_SURFACE_Y, BALL_Y } from './models.js';
 import { generateTextures } from './textures.js';
-import { randomizeBalls } from './physics.js';
+import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, BALL_RADIUS } from './physics.js';
+import { Controls } from './controls.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LAMP_SWING_AMP   = 0.07;  // swing amplitude in radians (~4°)
@@ -23,6 +35,26 @@ const LAMP_SWING_SPEED = 0.7;   // swing frequency (rad/s) — ~9 s full cycle
 
 const CAM_DIST_BEHIND = 4.5;    // distance behind cue ball for player-POV camera
 const CAM_HEIGHT_POV  = 1.6;    // camera height above table for player POV
+
+// Side view: a fixed profile shot looking back along the table's long axis
+// (X) from the right wall (+X, the wall opposite the window — see
+// createRoom in models.js), framing both the table and the swinging lamp.
+const SIDE_VIEW_X        = 9.5;  // camera X — well clear of the right wall at X = ROOM_W/2 = 11
+const SIDE_VIEW_Y        = 3.4;  // camera height, level with the look-at target for an undistorted profile
+const SIDE_VIEW_TARGET_Y = 3.4;  // look-at height, roughly midway between the table surface (0.76) and the lamp bar (~6.0)
+
+const STRIKE_FORWARD_TIME = 0.08; // seconds for the cue to snap forward into the ball
+const STRIKE_SHOW_TIME    = 0.25; // seconds the cue stays visible after the strike begins
+
+const DT_CAP = 0.05; // clamp on per-frame delta time, guards against huge dt after a tab stall
+
+// Speed (units/s) above which a ball can travel further than its own radius
+// within a single DT_CAP-length frame — i.e. fast enough to tunnel straight
+// through a cushion or another ball without ever overlapping it on a frame
+// boundary. Stepping physics in smaller sub-steps above this speed keeps
+// each individual displacement under one ball radius.
+const SUBSTEP_SAFE_SPEED    = BALL_RADIUS / (2 * DT_CAP);
+const SUBSTEP_SAFE_SPEED_SQ = SUBSTEP_SAFE_SPEED * SUBSTEP_SAFE_SPEED;
 
 // ─── Ball Colors (index 0 = cue ball, 1–15 = standard pool palette) ──────────
 const BALL_COLORS = [
@@ -46,13 +78,32 @@ const BALL_COLORS = [
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
 let renderer, scene, clock, lamp, texMap;
-let camera0, camera1, activeCamera;  // 0 = overview, 1 = player POV
+let camera0, camera1, camera2, activeCamera;  // 0 = overview, 1 = player POV, 2 = side view
 let currentCameraIndex = 0;
+let sideViewOn = false;              // true while camera2 is showing
+let preSideViewCamera = null;        // camera0 or camera1, whichever was active before the side view was opened
 let cue;                             // { root, group, tipMesh, shaftMesh, gripMesh }
 let lampOn    = true;
 let ballEnvMap;
-let balls     = [];                  // [{ id, isCueBall, color, number, mesh }]
-let btnLampEl, btnRerackEl, btnCamEl;
+let balls     = [];                  // [{ id, isCueBall, color, number, x, z, vx, vz, pocketed, mesh }]
+let btnLampEl, btnRerackEl, btnCamEl, btnSideEl;
+let powerFillEl, powerBarWrapEl;
+let controls;
+
+const _ballScreenPos = new THREE.Vector3(); // scratch vector for cursor-targeted aiming
+
+// ─── Gameplay State ───────────────────────────────────────────────────────────
+const STATE = {
+  WAITING:  'WAITING',
+  STRIKING: 'STRIKING',
+  ROLLING:  'ROLLING',
+};
+let gameState = STATE.WAITING;
+
+let strikeTimer          = 0; // seconds elapsed since the current strike began
+let strikeStartPullback  = 0; // cue.group.position.x at the moment the strike began
+let strikeOriginX        = 0; // cue ball x position at the moment the strike began
+let strikeOriginZ        = 0; // cue ball z position at the moment the strike began
 
 // ─── Entry Point ──────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', init);
@@ -87,6 +138,13 @@ function init() {
   // Camera 1: player POV — low behind the cue ball, updated every frame.
   camera1 = new THREE.PerspectiveCamera(58, aspect, 0.05, 100);
 
+  // Camera 2: side view — fixed profile shot from the right wall, looking
+  // back along -X so the lamp's Y/Z swing arc reads as clear screen motion
+  // instead of being foreshortened the way the other two cameras see it.
+  camera2 = new THREE.PerspectiveCamera(52, aspect, 0.1, 100);
+  camera2.position.set(SIDE_VIEW_X, SIDE_VIEW_Y, 0);
+  camera2.lookAt(0, SIDE_VIEW_TARGET_Y, 0);
+
   activeCamera = camera0;
 
   // ── Lights ──
@@ -108,6 +166,9 @@ function init() {
   // ── Cue stick ──
   cue = createCueStick(scene);
 
+  // ── Controls (must exist before _spawnAllBalls, which reads controls.enabled) ──
+  controls = new Controls(canvas);
+
   // ── Environment map (IBL for ball specular) ──
   ballEnvMap = _buildEnvMap();
   scene.environment = ballEnvMap;
@@ -119,12 +180,16 @@ function init() {
   clock = new THREE.Clock();
 
   // ── UI ──
-  btnLampEl   = document.getElementById('btn-lamp');
-  btnRerackEl = document.getElementById('btn-rerack');
-  btnCamEl    = document.getElementById('btn-cam');
+  btnLampEl      = document.getElementById('btn-lamp');
+  btnRerackEl    = document.getElementById('btn-rerack');
+  btnCamEl       = document.getElementById('btn-cam');
+  btnSideEl      = document.getElementById('btn-side');
+  powerFillEl    = document.getElementById('power-fill');
+  powerBarWrapEl = document.getElementById('power-bar-wrap');
   btnLampEl.addEventListener('click', _toggleLamp);
   btnRerackEl.addEventListener('click', _spawnAllBalls);
   btnCamEl.addEventListener('click', _switchCamera);
+  btnSideEl.addEventListener('click', _toggleSideView);
 
   // ── Events ──
   window.addEventListener('resize', _onResize);
@@ -138,6 +203,7 @@ function _onResize() {
   const aspect = window.innerWidth / window.innerHeight;
   camera0.aspect = aspect; camera0.updateProjectionMatrix();
   camera1.aspect = aspect; camera1.updateProjectionMatrix();
+  camera2.aspect = aspect; camera2.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
@@ -168,12 +234,33 @@ function _toggleLamp() {
 
 /**
  * Toggles between the two camera views and updates the button label.
+ * No-ops while the side view is open — that view owns activeCamera until
+ * its own button restores whichever of these two was showing beforehand.
  */
 function _switchCamera() {
+  if (sideViewOn) return;
+
   currentCameraIndex = (currentCameraIndex + 1) % 2;
   activeCamera = currentCameraIndex === 0 ? camera0 : camera1;
   // Button shows the destination (where you'll go on the next click)
   btnCamEl.textContent = currentCameraIndex === 0 ? '\u{1F441} Player POV' : '\u{1F4F7} Overview';
+}
+
+/**
+ * Opens or closes the fixed side view. Opening remembers whichever of
+ * camera0/camera1 was active so closing can restore it exactly; the
+ * Overview/Player-POV toggle above is left untouched either way.
+ */
+function _toggleSideView() {
+  sideViewOn = !sideViewOn;
+  if (sideViewOn) {
+    preSideViewCamera = activeCamera;
+    activeCamera      = camera2;
+    btnSideEl.textContent = '\u{21A9}\u{FE0F} Back to Scene';
+  } else {
+    activeCamera = preSideViewCamera;
+    btnSideEl.textContent = '\u{1F440} Side View';
+  }
 }
 
 /**
@@ -201,6 +288,8 @@ function _updatePlayerCamera() {
 // ─── Ball Spawning ────────────────────────────────────────────────────────────
 
 function _spawnAllBalls() {
+  if (gameState === STATE.ROLLING || gameState === STATE.STRIKING) return; // never reset the table mid-shot
+
   for (const b of balls) scene.remove(b.mesh);
   balls = [];
 
@@ -214,6 +303,10 @@ function _spawnAllBalls() {
   const cueBall = balls.find(b => b.isCueBall);
   cue.root.position.set(cueBall.mesh.position.x, BALL_Y, cueBall.mesh.position.z);
   cue.root.visible = true;
+  cue.group.position.set(0, 0, 0);
+
+  gameState        = STATE.WAITING;
+  controls.enabled = true;
 }
 
 function _spawnBall(id, number, x, z, isCueBall) {
@@ -222,7 +315,138 @@ function _spawnBall(id, number, x, z, isCueBall) {
   mesh.position.set(x, BALL_Y, z);
   mesh.castShadow = true;
   scene.add(mesh);
-  balls.push({ id, isCueBall, color, number, mesh });
+  balls.push({ id, isCueBall, color, number, x, z, vx: 0, vz: 0, pocketed: false, mesh });
+}
+
+// ─── Cue Ball Respawn (after a scratch) ──────────────────────────────────────
+/**
+ * Restores the cue ball to its standard re-spot position after it has been
+ * pocketed. Called from animate() on a short delay after a scratch.
+ */
+function _respawnCueBall() {
+  const cueBall = balls.find(b => b.isCueBall);
+  if (!cueBall) return;
+
+  cueBall.x        = 0;
+  cueBall.z        = TABLE_H / 4;
+  cueBall.vx       = 0;
+  cueBall.vz       = 0;
+  cueBall.pocketed = false;
+  cueBall.mesh.visible = true;
+  cueBall.mesh.position.set(cueBall.x, BALL_Y, cueBall.z);
+}
+
+// ─── Shot Firing ──────────────────────────────────────────────────────────────
+/**
+ * Launches the cue ball along the current aim direction at the given speed,
+ * and starts the cue's forward strike animation.
+ * @param {number} power - shot speed in scene units/s
+ */
+function _fireShot(power) {
+  const cueBall = balls.find(b => b.isCueBall && !b.pocketed);
+  if (!cueBall) return;
+
+  const phi = cue.root.rotation.y;
+  cueBall.vx = -Math.cos(phi) * power;
+  cueBall.vz =  Math.sin(phi) * power;
+
+  strikeStartPullback = cue.group.position.x;
+  strikeOriginX        = cueBall.x;
+  strikeOriginZ        = cueBall.z;
+  strikeTimer          = 0;
+  gameState            = STATE.STRIKING;
+  controls.enabled     = false;
+}
+
+// ─── Cue Update ───────────────────────────────────────────────────────────────
+/**
+ * Drives the cue's position, aim rotation, pullback, visibility, and strike
+ * animation according to the current gameplay state.
+ * @param {number} dt - delta time in seconds
+ */
+function _updateCue(dt) {
+  const cueBall = balls.find(b => b.isCueBall && !b.pocketed);
+  if (gameState === STATE.ROLLING || !cueBall) {
+    cue.root.visible = false;
+    return;
+  }
+
+  if (gameState === STATE.STRIKING) {
+    cue.root.position.set(strikeOriginX, BALL_Y, strikeOriginZ);
+  } else {
+    cue.root.position.set(cueBall.x, BALL_Y, cueBall.z);
+  }
+
+  if (gameState === STATE.WAITING) {
+    cue.root.visible = true;
+
+    // Cursor-targeted aiming: while dragging in the overview camera, point
+    // the cue at wherever the cursor is relative to the cue ball on screen,
+    // rather than only accumulating relative drag motion.
+    if (controls.isAiming && activeCamera === camera0) {
+      _ballScreenPos.set(cueBall.x, BALL_Y, cueBall.z).project(camera0);
+      const ballScreenX = (_ballScreenPos.x + 1) / 2 * window.innerWidth;
+      const ballScreenY = (1 - _ballScreenPos.y) / 2 * window.innerHeight;
+      const dx = controls.mouseX - ballScreenX;
+      const dy = controls.mouseY - ballScreenY;
+      if (Math.hypot(dx, dy) > 1e-4) {
+        controls.aimAngle = Math.atan2(-dy, dx);
+      }
+    }
+
+    cue.root.rotation.y  = controls.aimAngle;
+    cue.group.position.x = controls.pullback;
+  } else if (gameState === STATE.STRIKING) {
+    strikeTimer += dt;
+    const t = Math.min(strikeTimer / STRIKE_FORWARD_TIME, 1.0);
+    const targetX = -0.05;
+    cue.group.position.x = strikeStartPullback + (targetX - strikeStartPullback) * t;
+
+    if (strikeTimer >= STRIKE_SHOW_TIME) {
+      cue.root.visible = false;
+      gameState        = STATE.ROLLING;
+    }
+  }
+}
+
+// ─── Ball Rolling Rotation ────────────────────────────────────────────────────
+const _deltaQ   = new THREE.Quaternion(); // scratch quaternion reused every call
+const _rollAxis = new THREE.Vector3();    // scratch axis vector reused every call
+
+/**
+ * Spins a ball's mesh to visually match its rolling motion: the roll axis is
+ * perpendicular to its velocity (in the XZ plane), and the roll angle is
+ * derived from the distance travelled this frame divided by the ball radius.
+ * @param {{ vx: number, vz: number, mesh: THREE.Object3D }} ball
+ * @param {number} dt - delta time in seconds
+ */
+function _updateBallRotation(ball, dt) {
+  const speed = Math.sqrt(ball.vx * ball.vx + ball.vz * ball.vz);
+  if (speed < 0.0001) return;
+
+  _rollAxis.set(-ball.vz / speed, 0, ball.vx / speed);
+  const angle = (speed * dt) / BALL_RADIUS;
+  _deltaQ.setFromAxisAngle(_rollAxis, angle);
+  ball.mesh.quaternion.premultiply(_deltaQ);
+}
+
+// ─── Power Bar UI ─────────────────────────────────────────────────────────────
+/**
+ * Reflects the current charge level in the power-bar fill width, color
+ * (green at low charge, shifting to red at full charge), glow, and tremble.
+ */
+function _updatePowerBar() {
+  const pct = controls.chargeAmount * 100;
+  powerFillEl.style.width = `${pct}%`;
+
+  const hue = 120 - controls.chargeAmount * 120; // green (120°) → red (0°)
+  powerFillEl.style.background = `hsl(${hue}, 90%, 50%)`;
+  powerFillEl.style.boxShadow = controls.isCharging
+    ? `0 0 ${6 + controls.chargeAmount * 14}px hsl(${hue}, 90%, 60%)`
+    : 'none';
+
+  const tremble = controls.isCharging ? controls.chargeAmount * 3 : 0;
+  powerBarWrapEl.style.setProperty('--tremble', `${tremble}px`);
 }
 
 // ─── Environment Map ──────────────────────────────────────────────────────────
@@ -328,10 +552,85 @@ function _buildNightSkyBackground() {
 }
 
 // ─── Render Loop ──────────────────────────────────────────────────────────────
+/**
+ * Per-frame update, in order:
+ *   1. Frame timing      — capped delta time, elapsed time for the lamp swing
+ *   2. Input             — controls.update(), consume a fired shot if any
+ *   3. Physics           — sub-stepped stepPhysics() while STRIKING/ROLLING,
+ *                           newly-pocketed handling, ROLLING → WAITING transition
+ *   4. Sync              — ball meshes follow physics state, rolling rotation
+ *   5. Cue               — position/aim/pullback/strike animation
+ *   6. Lamp swing
+ *   7. Player-POV camera (only when active)
+ *   8. Render + power-bar UI
+ */
 function animate() {
   requestAnimationFrame(animate);
-  const elapsedTime = clock.getElapsedTime();
+
+  // ── 1. Frame timing ──
+  const dt          = Math.min(clock.getDelta(), DT_CAP);
+  const elapsedTime = clock.elapsedTime;
+
+  // ── 2. Input ──
+  controls.update();
+  const shot = controls.consumeShot();
+  if (shot && gameState === STATE.WAITING) _fireShot(shot.power);
+
+  // ── 3. Physics ──
+  if (gameState === STATE.ROLLING || gameState === STATE.STRIKING) {
+    let maxSpeedSq = 0;
+    for (const ball of balls) {
+      if (ball.pocketed) continue;
+      const speedSq = ball.vx * ball.vx + ball.vz * ball.vz;
+      if (speedSq > maxSpeedSq) maxSpeedSq = speedSq;
+    }
+
+    // Sub-step at high speed so a fast ball can't tunnel through a cushion
+    // or another ball within a single frame.
+    const SUB_STEPS = maxSpeedSq < SUBSTEP_SAFE_SPEED_SQ ? 1 : 3;
+    const subDt     = dt / SUB_STEPS;
+
+    let newlyPocketed = [];
+    for (let s = 0; s < SUB_STEPS; s++) {
+      newlyPocketed = newlyPocketed.concat(stepPhysics(balls, subDt));
+    }
+
+    for (const b of newlyPocketed) {
+      b.mesh.visible = false;
+      if (b.isCueBall) {
+        setTimeout(() => _respawnCueBall(), 800);
+      }
+    }
+
+    if (gameState === STATE.ROLLING && isReadyForNextShot(balls)) {
+      const cueBall = balls.find(b => b.isCueBall);
+      if (cueBall && !cueBall.pocketed) {
+        snapToRest(balls);
+        gameState         = STATE.WAITING;
+        controls.enabled  = true;
+        cue.root.visible  = true;
+        cue.group.position.set(0, 0, 0);
+      }
+    }
+  }
+
+  // ── 4. Sync ball meshes to physics state ──
+  for (const ball of balls) {
+    if (ball.pocketed) continue;
+    ball.mesh.position.set(ball.x, BALL_Y, ball.z);
+    _updateBallRotation(ball, dt);
+  }
+
+  // ── 5. Cue ──
+  _updateCue(dt);
+
+  // ── 6. Lamp ──
   _updateLamp(elapsedTime);
-  if (currentCameraIndex === 1) _updatePlayerCamera();
+
+  // ── 7. Camera ──
+  if (activeCamera === camera1) _updatePlayerCamera();
+
+  // ── 8. Render + UI ──
   renderer.render(scene, activeCamera);
+  _updatePowerBar();
 }
