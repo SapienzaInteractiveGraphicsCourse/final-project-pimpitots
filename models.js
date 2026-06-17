@@ -60,9 +60,13 @@ export function createRoom(scene, texMap) {
     metalness:    0.0,
   });
 
-  // Room is a large box — we render its inside faces
+  // Room is a large box — we render its inside faces.
+  // Face index 1 (-X, left wall) uses an invisible material so the background
+  // shows through the window hole cut into the replacement left-wall planes below.
+  const invisMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false });
   const roomGeo  = new THREE.BoxGeometry(ROOM_W, ROOM_H, ROOM_D);
-  const roomMesh = new THREE.Mesh(roomGeo, wallMat);
+  // BoxGeometry face order: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z
+  const roomMesh = new THREE.Mesh(roomGeo, [wallMat, invisMat, wallMat, wallMat, wallMat, wallMat]);
   roomMesh.position.set(0, ROOM_H / 2, 0);
   roomMesh.name = 'roomBox';
   // NOTE: receiveShadow intentionally omitted — Three.js shadow bias is inverted
@@ -109,6 +113,111 @@ export function createRoom(scene, texMap) {
     mesh.name          = 'skirting';
     group.add(mesh);
   }
+
+  // ── Window on left wall (x = -ROOM_W/2) ────────────────────────────────
+  const WIN_W  = 4.4;   // frame opening width  (Z-axis)
+  const WIN_H  = 2.4;   // frame opening height (Y-axis)
+  const WIN_CY = 3.4;   // center height above floor
+  const WIN_CZ = 1.5;   // center Z along the left wall
+
+  const WALL_X = -(ROOM_W / 2);
+
+  // Left wall rebuilt as 4 planes with a window-sized hole so scene.background
+  // (the night sky) shows through naturally with real parallax.
+  const FT      = 0.06;   // frame bar thickness — also used for hole sizing below
+  const HOLE_W  = WIN_W + FT * 2 + 0.04;   // hole slightly wider than outer frame
+  const HOLE_H  = WIN_H + FT * 2 + 0.04;
+  const zL = WIN_CZ - HOLE_W / 2;           // hole left  Z edge
+  const zR = WIN_CZ + HOLE_W / 2;           // hole right Z edge
+  const yB = WIN_CY - HOLE_H / 2;           // hole bottom Y
+  const yT = WIN_CY + HOLE_H / 2;           // hole top    Y
+
+  const leftWallMat = wallMat.clone();
+  leftWallMat.side = THREE.FrontSide;  // planes face +X (into room)
+
+  // [planeWidth(Z), planeHeight(Y), centerZ, centerY]
+  const wallPieces = [
+    [zL + ROOM_D / 2,      ROOM_H,           (-ROOM_D / 2 + zL) / 2, ROOM_H / 2],  // left of hole
+    [ROOM_D / 2 - zR,      ROOM_H,           (zR + ROOM_D / 2) / 2,  ROOM_H / 2],  // right of hole
+    [HOLE_W,               ROOM_H - yT,      WIN_CZ,                  (yT + ROOM_H) / 2], // above hole
+    [HOLE_W,               yB,               WIN_CZ,                  yB / 2],            // below hole
+  ];
+  wallPieces.forEach(([w, h, cz, cy]) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), leftWallMat);
+    m.rotation.y = Math.PI / 2;
+    m.position.set(WALL_X + 0.001, cy, cz);
+    m.receiveShadow = true;
+    m.name = 'leftWallPane';
+    group.add(m);
+  });
+
+  // ── Window reveal — 4 inner faces of the wall tunnel ────────────────────
+  const REVEAL_D = 0.22;  // wall thickness shown (depth of tunnel in X)
+  const revealMat = leftWallMat.clone();
+  revealMat.side = THREE.DoubleSide;
+
+  [
+    // [geo_w, geo_h, rx, ry, px, py, pz]
+    [REVEAL_D, HOLE_W,  Math.PI / 2,  0, WALL_X + REVEAL_D / 2, yT, WIN_CZ],   // top face
+    [REVEAL_D, HOLE_W, -Math.PI / 2,  0, WALL_X + REVEAL_D / 2, yB, WIN_CZ],   // bottom face
+    [REVEAL_D, HOLE_H,  0,            0, WALL_X + REVEAL_D / 2, WIN_CY, zL],    // left side
+    [REVEAL_D, HOLE_H,  0,  Math.PI,   WALL_X + REVEAL_D / 2, WIN_CY, zR],     // right side
+  ].forEach(([gw, gh, rx, ry, px, py, pz]) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(gw, gh), revealMat);
+    m.rotation.x = rx;
+    m.rotation.y = ry;
+    m.position.set(px, py, pz);
+    m.receiveShadow = true;
+    m.name = 'windowReveal';
+    group.add(m);
+  });
+
+  // Glass pane — MeshPhysicalMaterial for Fresnel reflections via scene.environment
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color:           0xaaccee,
+    transparent:     true,
+    opacity:         0.15,
+    roughness:       0.0,
+    metalness:       0.0,
+    reflectivity:    0.9,
+    envMapIntensity: 1.5,
+    side:            THREE.DoubleSide,
+  });
+  const glassMesh = new THREE.Mesh(new THREE.PlaneGeometry(WIN_W, WIN_H), glassMat);
+  glassMesh.rotation.y = Math.PI / 2;
+  glassMesh.position.set(WALL_X + 0.03, WIN_CY, WIN_CZ);
+  glassMesh.name = 'windowGlass';
+  group.add(glassMesh);
+
+  // Frame — same wood PBR texture as the table rails
+  const frameMat = new THREE.MeshStandardMaterial({
+    map:          texMap.wood.map,
+    normalMap:    texMap.wood.normalMap,
+    roughnessMap: texMap.wood.roughnessMap,
+    roughness:    0.8,
+    metalness:    0.0,
+  });
+  const FD = 0.07;   // depth protruding from wall in +X
+  const FX = WALL_X + FD / 2;
+  [
+    [FD, FT,           WIN_W + FT*2, FX, WIN_CY + WIN_H/2 + FT/2, WIN_CZ],  // top
+    [FD, FT,           WIN_W + FT*2, FX, WIN_CY - WIN_H/2 - FT/2, WIN_CZ],  // bottom
+    [FD, WIN_H + FT*2, FT,           FX, WIN_CY, WIN_CZ - WIN_W/2 - FT/2],  // left side
+    [FD, WIN_H + FT*2, FT,           FX, WIN_CY, WIN_CZ + WIN_W/2 + FT/2],  // right side
+    [FD, FT,           WIN_W,        FX, WIN_CY, WIN_CZ],                    // horizontal divider
+    [FD, WIN_H,        FT,           FX, WIN_CY, WIN_CZ],                    // vertical divider
+  ].forEach(([gx, gy, gz, px, py, pz]) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(gx, gy, gz), frameMat);
+    m.position.set(px, py, pz);
+    m.receiveShadow = true;
+    m.name = 'windowFrame';
+    group.add(m);
+  });
+
+  // Diffuse moonlight coming through the window
+  const moonLight = new THREE.PointLight(0x8899cc, 0.12, 18);
+  moonLight.position.set(WALL_X + 0.6, WIN_CY + 0.2, WIN_CZ);
+  group.add(moonLight);
 
   scene.add(group);
   return { group };

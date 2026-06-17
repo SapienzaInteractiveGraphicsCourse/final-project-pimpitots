@@ -71,8 +71,9 @@ function init() {
 
   // ── Scene ──
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1a1a22);
-  scene.fog = new THREE.Fog(0x1a1a22, 8, 30);
+  scene.background = _buildNightSkyBackground();
+  // Fog color matches the deep night sky so far geometry fades naturally.
+  scene.fog = new THREE.Fog(0x080d20, 8, 30);
 
   // ── Cameras ──
   const aspect = window.innerWidth / window.innerHeight;
@@ -249,6 +250,68 @@ function _buildEnvMap() {
   pmrem.dispose();
   equiTex.dispose();
   return envMap;
+}
+
+// ─── Night Sky Background ─────────────────────────────────────────────────────
+
+/**
+ * Builds a 2048×1024 equirectangular canvas texture used as scene.background.
+ * Shows through the window hole in the left wall, giving a parallax night sky.
+ */
+function _buildNightSkyBackground() {
+  const W = 2048, H = 1024;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0,   '#030510');
+  grad.addColorStop(1,   '#080d20');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars — crisp point-like dots
+  for (let i = 0; i < 2000; i++) {
+    const sx = Math.random() * W;
+    const sy = Math.random() * H;
+    const sr = Math.random() * 0.6 + 0.4;
+    const a  = 0.5 + Math.random() * 0.5;
+    const wb = Math.floor(Math.random() * 55);
+    ctx.fillStyle = `rgba(${200 + wb}, ${200 + wb}, 255, ${a})`;
+    ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+  }
+  // Brighter foreground stars
+  for (let i = 0; i < 30; i++) {
+    const sx = Math.random() * W;
+    const sy = Math.random() * H;
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.7 + Math.random() * 0.3})`;
+    ctx.beginPath(); ctx.arc(sx, sy, 1.2, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Moon — positioned for the -X direction (U=0.75 → x=1536, V=0.62 → y=386)
+  const MX = Math.round(0.75 * W), MY = Math.round((1 - 0.62) * H), MR = 42;
+  const halo = ctx.createRadialGradient(MX, MY, MR * 0.8, MX, MY, MR * 3);
+  halo.addColorStop(0, 'rgba(160, 185, 255, 0.22)');
+  halo.addColorStop(1, 'rgba(100, 120, 200, 0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.arc(MX, MY, MR * 3, 0, Math.PI * 2); ctx.fill();
+
+  const disc = ctx.createRadialGradient(MX - 9, MY - 9, 0, MX, MY, MR);
+  disc.addColorStop(0,   '#fff8e8');
+  disc.addColorStop(0.6, '#e5dca8');
+  disc.addColorStop(1,   '#bab07a');
+  ctx.fillStyle = disc;
+  ctx.beginPath(); ctx.arc(MX, MY, MR, 0, Math.PI * 2); ctx.fill();
+
+  for (const [cx, cy, cr, a] of [[MX+11, MY+13, 6, 0.07], [MX-14, MY+5, 4, 0.05], [MX+17, MY-11, 5, 0.06]]) {
+    ctx.fillStyle = `rgba(90, 80, 50, ${a})`;
+    ctx.beginPath(); ctx.arc(cx, cy, cr, 0, Math.PI * 2); ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.encoding = THREE.sRGBEncoding;
+  tex.mapping  = THREE.EquirectangularReflectionMapping;
+  return tex;
 }
 
 // ─── Render Loop ──────────────────────────────────────────────────────────────
