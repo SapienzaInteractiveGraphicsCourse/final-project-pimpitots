@@ -37,8 +37,8 @@ import { Controls } from './controls.js';
 const LEVELS_BALL_COUNT = [1, 2, 3, 4];  // colored balls per level (level N = index N-1)
 const NUM_LEVELS        = LEVELS_BALL_COUNT.length; // 4
 
-const LAMP_SWING_AMP   = 0;       // swing amplitude in radians
-const LAMP_SWING_SPEED = 0.05;    // swing frequency (rad/s)
+const LAMP_SWING_AMP   = 0.07;    // swing amplitude in radians (~4°)
+const LAMP_SWING_SPEED = 0.7;     // swing frequency (rad/s) — ~9s full cycle
 
 const CAM_DIST_BEHIND = 4.5;      // distance behind cue ball for player-POV camera
 const CAM_HEIGHT_POV  = 1.6;      // camera height above table for player POV
@@ -111,8 +111,16 @@ let ballsRemaining          = 0;     // colored balls still on table
 let gameWon                 = false;
 let _levelTransitionTimeout = null;  // handle so Reset can cancel a pending advance
 
+// ─── Difficulty / Lives State ─────────────────────────────────────────────────
+let difficulty               = 'normal';
+let maxLives                 = 5;
+let playerLives              = 5;
+let gameOver                 = false;
+let difficultyChosen         = false;
+let _pocketedColoredThisShot = false;
+
 // ─── HUD element refs (cached in _buildHUD) ───────────────────────────────────
-let hudLevelEl, hudBallsEl, overlayEl;
+let hudLevelEl, hudBallsEl, hudLivesEl, overlayEl;
 
 // ─── Loading-overlay lifecycle state ─────────────────────────────────────────
 // See _maybeDismissLoader() / _dismissLoader() below for how these gate the
@@ -267,6 +275,7 @@ function _dismissLoader() {
   el.classList.add('fade-out');
   setTimeout(function () {
     if (el.parentNode) el.parentNode.removeChild(el);
+    _showDifficultyMenu();
   }, 700);
 }
 
@@ -301,9 +310,10 @@ function _startLevel(levelIndex) {
     _levelTransitionTimeout = null;
   }
 
-  currentLevel     = levelIndex;
-  gameState        = STATE.WAITING;
-  controls.enabled = true;
+  currentLevel             = levelIndex;
+  gameState                = STATE.WAITING;
+  _pocketedColoredThisShot = false;
+  controls.enabled         = true;
 
   const numColored = LEVELS_BALL_COUNT[levelIndex];
   ballsRemaining   = numColored;
@@ -344,6 +354,7 @@ function _spawnBall(id, number, x, z, isCueBall) {
  * Called by the "New Configuration" button and N key.
  */
 function _newConfiguration() {
+  if (!difficultyChosen || gameOver || gameWon) return;
   if (gameState === STATE.ROLLING || gameState === STATE.STRIKING) return;
   _startLevel(currentLevel);
 }
@@ -353,8 +364,10 @@ function _newConfiguration() {
  * Called by the "Reset" button and R key.
  */
 function _resetGame() {
+  if (!difficultyChosen || gameOver || gameWon) return;
   if (gameState === STATE.ROLLING || gameState === STATE.STRIKING) return;
-  gameWon = false;
+  gameWon     = false;
+  playerLives = maxLives;
   if (overlayEl) overlayEl.style.display = 'none';
   _startLevel(0);
 }
@@ -376,6 +389,8 @@ function _respawnCueBall() {
 function _fireShot(power) {
   const cueBall = balls.find(b => b.isCueBall && !b.pocketed);
   if (!cueBall) return;
+
+  _pocketedColoredThisShot = false;
 
   // Defer velocity — applied inside _updateCue once the cue tip visually
   // crosses the ball surface, so the ball doesn't fly away before the
@@ -547,6 +562,7 @@ function animate() {
         setTimeout(() => _respawnCueBall(), 800);
       } else {
         // Colored ball pocketed — decrement counter and check for level complete
+        _pocketedColoredThisShot = true;
         ballsRemaining--;
         _updateHUD();
         if (ballsRemaining <= 0) {
@@ -564,6 +580,7 @@ function animate() {
         controls.enabled = true;
         cue.root.visible = true;
         cue.group.position.set(0, 0, 0);
+        if (!_pocketedColoredThisShot) _loseLife();
       }
     }
   }
@@ -667,7 +684,7 @@ function _showWinScreen() {
   document.getElementById('btn-restart').addEventListener('click', function() {
     overlayEl.style.display = 'none';
     gameWon = false;
-    _resetGame();
+    _showDifficultyMenu();
   });
 }
 
@@ -767,6 +784,7 @@ function _buildNightSkyBackground() {
 function _buildHUD() {
   hudLevelEl     = document.getElementById('hud-level');
   hudBallsEl     = document.getElementById('hud-balls');
+  hudLivesEl     = document.getElementById('hud-lives');
   btnCamEl       = document.getElementById('btn-cam');
   btnLampEl      = document.getElementById('btn-lamp');
   powerFillEl    = document.getElementById('power-fill');
@@ -786,6 +804,13 @@ function _updateHUD() {
   if (hudBallsEl) hudBallsEl.textContent = `Balls remaining: ${ballsRemaining}`;
   if (btnCamEl)   btnCamEl.textContent   = currentCameraIndex === 0 ? '\u{1F441} Player POV' : '\u{1F4F7} Overview';
   if (btnLampEl)  btnLampEl.textContent  = lampOn ? '\u{1F311} Lamp OFF' : '\u{1F315} Lamp ON';
+  if (hudLivesEl && difficultyChosen) {
+    var hearts = '';
+    for (var i = 0; i < maxLives; i++) {
+      hearts += (i < playerLives) ? '❤️ ' : '🖤 ';
+    }
+    hudLivesEl.textContent = hearts.trim();
+  }
 }
 
 function _updatePowerBar() {
@@ -800,4 +825,199 @@ function _updatePowerBar() {
 
   const tremble = controls.isCharging ? controls.chargeAmount * 3 : 0;
   powerBarWrapEl.style.setProperty('--tremble', `${tremble}px`);
+}
+
+// ─── Difficulty Menu ──────────────────────────────────────────────────────────
+
+function _showDifficultyMenu() {
+  difficultyChosen = false;
+  controls.enabled = false;
+
+  const DIFFS = [
+    { diff: 'normal', label: 'NORMAL', lives: 5 },
+    { diff: 'hard',   label: 'HARD',   lives: 3 },
+    { diff: 'insane', label: 'INSANE', lives: 1 },
+  ];
+
+  const faceSVG = [
+    "<svg id='diff-face' viewBox='-50 -50 100 100' xmlns='http://www.w3.org/2000/svg' overflow='visible'>",
+    "  <path id='dh-horn-l-bg' stroke='white' stroke-width='7' stroke-linejoin='round' opacity='0'/>",
+    "  <path id='dh-horn-r-bg' stroke='white' stroke-width='7' stroke-linejoin='round' opacity='0'/>",
+    "  <path id='dh-horn-l' stroke='#111' stroke-width='4' stroke-linejoin='round' opacity='0'/>",
+    "  <path id='dh-horn-r' stroke='#111' stroke-width='4' stroke-linejoin='round' opacity='0'/>",
+    "  <circle id='dh-bg' cx='0' cy='0' r='50'/>",
+    "  <ellipse id='dh-cheek-l' cx='-28' cy='16' rx='13' ry='8' fill='rgba(255,100,80,0.30)'/>",
+    "  <ellipse id='dh-cheek-r' cx=' 28' cy='16' rx='13' ry='8' fill='rgba(255,100,80,0.30)'/>",
+    "  <path id='dh-brow-l' fill='none' stroke='#111' stroke-width='4.5' stroke-linecap='round'/>",
+    "  <path id='dh-brow-r' fill='none' stroke='#111' stroke-width='4.5' stroke-linecap='round'/>",
+    "  <ellipse id='dh-eye-l' cx='-17' cy='-4' rx='9' ry='8' fill='#111'/>",
+    "  <ellipse id='dh-eye-r' cx=' 17' cy='-4' rx='9' ry='8' fill='#111'/>",
+    "  <circle id='dh-shine-l' cx='-13' cy='-7' r='2.8' fill='white' opacity='0.75'/>",
+    "  <circle id='dh-shine-r' cx=' 21' cy='-7' r='2.8' fill='white' opacity='0.75'/>",
+    "  <path id='dh-mouth' fill='none' stroke='#111' stroke-width='4.5' stroke-linecap='round'/>",
+    "</svg>",
+  ].join('');
+
+  overlayEl.style.display = 'flex';
+  overlayEl.innerHTML =
+    "<div class='overlay-card diff-card'>" +
+      "<div class='diff-avatar' id='diff-avatar'>" + faceSVG + "</div>" +
+      "<div class='diff-label' id='diff-label'>NORMAL</div>" +
+      "<div class='diff-sub'   id='diff-sub'>5 lives</div>" +
+      "<div class='diff-slider-wrap'>" +
+        "<input type='range' id='diff-slider' class='diff-slider' min='0' max='2' step='0.01' value='0'>" +
+      "</div>" +
+      "<p class='diff-hint'>Slide to set difficulty</p>" +
+      "<button id='btn-play-diff' class='btn-play-diff'>&#9654;&nbsp;&nbsp;PLAY</button>" +
+    "</div>";
+
+  const labelEl = document.getElementById('diff-label');
+  const subEl   = document.getElementById('diff-sub');
+  const slider  = document.getElementById('diff-slider');
+  const playBtn = document.getElementById('btn-play-diff');
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function lerpColor(c1, c2, t) {
+    const h = s => [parseInt(s.slice(1,3),16), parseInt(s.slice(3,5),16), parseInt(s.slice(5,7),16)];
+    const [r1,g1,b1] = h(c1), [r2,g2,b2] = h(c2);
+    return 'rgb(' + Math.round(lerp(r1,r2,t)) + ',' + Math.round(lerp(g1,g2,t)) + ',' + Math.round(lerp(b1,b2,t)) + ')';
+  }
+  function twoSeg(v0, v1, v2, t) {
+    return t <= 0.5 ? lerp(v0, v1, t / 0.5) : lerp(v1, v2, (t - 0.5) / 0.5);
+  }
+  function twoSegColor(c0, c1, c2, t) {
+    return t <= 0.5 ? lerpColor(c0, c1, t / 0.5) : lerpColor(c1, c2, (t - 0.5) / 0.5);
+  }
+
+  function updateFace(v) {
+    const n = v / 2;
+    const faceColor = twoSegColor('#3aaa60', '#e08030', '#9b2dc7', n);
+    const hornColor = twoSegColor('#1e6e38', '#7a3008', '#5a1080', n);
+    const hornGrow  = clamp((n - 0.55) / 0.45, 0, 1);
+    const g = id => document.getElementById(id);
+
+    g('dh-bg').setAttribute('fill', faceColor);
+
+    if (hornGrow > 0.001) {
+      const tipY   = (-50 - hornGrow * 44).toFixed(1);
+      const ctrlY  = (-42 - hornGrow * 22).toFixed(1);
+      const hornD_L = 'M -18 -47 L -38 ' + tipY + ' Q -58 ' + ctrlY + ' -32 -34 Z';
+      const hornD_R = 'M 18 -47 L 38 '   + tipY + ' Q 58 '  + ctrlY + ' 32 -34 Z';
+      g('dh-horn-l-bg').setAttribute('d', hornD_L);
+      g('dh-horn-r-bg').setAttribute('d', hornD_R);
+      g('dh-horn-l-bg').setAttribute('fill', hornColor);
+      g('dh-horn-r-bg').setAttribute('fill', hornColor);
+      g('dh-horn-l').setAttribute('d', hornD_L);
+      g('dh-horn-r').setAttribute('d', hornD_R);
+      g('dh-horn-l').setAttribute('fill', hornColor);
+      g('dh-horn-r').setAttribute('fill', hornColor);
+    }
+    g('dh-horn-l-bg').setAttribute('opacity', hornGrow.toFixed(3));
+    g('dh-horn-r-bg').setAttribute('opacity', hornGrow.toFixed(3));
+    g('dh-horn-l').setAttribute('opacity', hornGrow.toFixed(3));
+    g('dh-horn-r').setAttribute('opacity', hornGrow.toFixed(3));
+
+    const eyeRy    = twoSeg(8, 5, 2.5, n).toFixed(2);
+    g('dh-eye-l').setAttribute('ry', eyeRy);
+    g('dh-eye-r').setAttribute('ry', eyeRy);
+
+    const eyeRyNum = parseFloat(eyeRy);
+    const shineR   = (eyeRyNum * 0.35).toFixed(2);
+    const shineCy  = (-4 - eyeRyNum * 0.60).toFixed(2);
+    g('dh-shine-l').setAttribute('r',  shineR);
+    g('dh-shine-r').setAttribute('r',  shineR);
+    g('dh-shine-l').setAttribute('cy', shineCy);
+    g('dh-shine-r').setAttribute('cy', shineCy);
+
+    const browOutY = twoSeg(-32, -30, -27, n).toFixed(1);
+    const browInnY = twoSeg(-32, -22, -13, n).toFixed(1);
+    g('dh-brow-l').setAttribute('d', 'M -27 ' + browOutY + ' L -8 ' + browInnY);
+    g('dh-brow-r').setAttribute('d', 'M  27 ' + browOutY + ' L  8 ' + browInnY);
+
+    const mouthCtrl = twoSeg(30, 14, 48, n).toFixed(1);
+    const mouthX    = twoSeg(24, 24, 36, n).toFixed(1);
+    g('dh-mouth').setAttribute('d', 'M -' + mouthX + ' 16 Q 0 ' + mouthCtrl + ' ' + mouthX + ' 16');
+
+    const cheekOp = clamp(1 - n / 0.35, 0, 1).toFixed(3);
+    g('dh-cheek-l').setAttribute('opacity', cheekOp);
+    g('dh-cheek-r').setAttribute('opacity', cheekOp);
+
+    const labelColor = twoSegColor('#3aaa60', '#e08030', '#9b2dc7', n);
+    const glowColor  = twoSegColor('rgba(58,170,96,0.7)', 'rgba(224,128,48,0.7)', 'rgba(155,45,199,0.7)', n);
+    labelEl.style.color      = labelColor;
+    labelEl.style.textShadow = '0 0 18px ' + glowColor;
+    playBtn.style.background = 'linear-gradient(135deg, ' + twoSegColor('#2a6e3f', '#7a3008', '#5a1080', n) + ', ' + labelColor + ')';
+    playBtn.style.boxShadow  = '0 0 22px ' + glowColor;
+  }
+
+  function updateLabel(v) {
+    const d = DIFFS[Math.round(v)];
+    labelEl.textContent = d.label;
+    subEl.textContent   = d.lives + (d.lives === 1 ? ' life' : ' lives');
+  }
+
+  updateFace(0);
+  updateLabel(0);
+
+  slider.addEventListener('input', function() {
+    const v = parseFloat(slider.value);
+    updateFace(v);
+    updateLabel(v);
+  });
+
+  function snapSlider() {
+    const snapped = Math.round(parseFloat(slider.value));
+    slider.value = snapped;
+    updateFace(snapped);
+    updateLabel(snapped);
+  }
+  slider.addEventListener('mouseup',  snapSlider);
+  slider.addEventListener('touchend', snapSlider);
+
+  playBtn.addEventListener('click', function() {
+    const d = DIFFS[Math.round(parseFloat(slider.value))];
+    _selectDifficulty(d.diff, d.lives);
+  });
+}
+
+function _selectDifficulty(diff, lives) {
+  difficulty       = diff;
+  maxLives         = lives;
+  playerLives      = lives;
+  difficultyChosen = true;
+  gameOver         = false;
+  overlayEl.style.display = 'none';
+  _startLevel(0);
+}
+
+// ─── Life System ─────────────────────────────────────────────────────────────
+
+function _loseLife() {
+  playerLives--;
+  _updateHUD();
+  if (playerLives <= 0) _showGameOver();
+}
+
+function _showGameOver() {
+  gameOver         = true;
+  gameState        = STATE.WAITING;
+  controls.enabled = false;
+  cue.root.visible = false;
+
+  overlayEl.style.display = 'flex';
+  overlayEl.innerHTML =
+    "<div class='overlay-card game-over'>" +
+      "<span class='overlay-emoji'>&#128128;</span>" +
+      "<h1>GAME OVER</h1>" +
+      "<p>You ran out of lives!</p>" +
+      "<p class='overlay-sub-win'>Think you can do better?</p>" +
+      "<button class='btn-try-again' id='btn-try-again'>&#9654;&nbsp;&nbsp;Try Again</button>" +
+    "</div>";
+
+  document.getElementById('btn-try-again').addEventListener('click', function() {
+    overlayEl.style.display = 'none';
+    gameOver = false;
+    _showDifficultyMenu();
+  });
 }

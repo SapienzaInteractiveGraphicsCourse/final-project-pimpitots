@@ -356,6 +356,79 @@
       margin-right: 2px;
     }
 
+    /* ── Lives HUD ── */
+    #hud-lives { font-size: 18px; margin-top: 4px; min-height: 22px; letter-spacing: 2px; }
+
+    /* ── Difficulty selection menu ── */
+    .diff-card {
+      padding: 80px 60px 44px !important;
+      min-width: 340px;
+      position: relative;
+      margin-top: 62px;
+    }
+    .diff-avatar {
+      position: absolute;
+      top: -62px; left: 50%; transform: translateX(-50%);
+      width: 114px; height: 114px; border-radius: 50%;
+      box-shadow: 0 0 0 4px #0a0a0a, 0 0 0 9px #fff, 0 10px 24px rgba(0,0,0,0.6);
+      overflow: visible;
+      animation: bounceIn 0.55s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    #diff-face { display: block; width: 100%; height: 100%; overflow: visible; }
+    .diff-label {
+      font-size: 30px; font-weight: 900; letter-spacing: 3px;
+      color: #3aaa60; text-shadow: 0 0 18px rgba(58,170,96,0.7);
+      margin-bottom: 4px; transition: color 0.25s, text-shadow 0.25s;
+    }
+    .diff-sub { font-size: 15px; font-weight: 600; color: #888; margin-bottom: 24px; }
+    .diff-slider-wrap { width: 100%; margin-bottom: 6px; }
+    .diff-slider {
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 8px; border-radius: 4px; outline: none; cursor: pointer;
+      background: linear-gradient(90deg, #3aaa60, #e08030 50%, #9b2dc7);
+    }
+    .diff-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 28px; height: 28px; border-radius: 50%; background: #fff;
+      box-shadow: 0 0 0 3px #333, 0 2px 8px rgba(0,0,0,0.5);
+      cursor: pointer; transition: transform 0.1s;
+    }
+    .diff-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+    .diff-slider::-moz-range-thumb {
+      width: 28px; height: 28px; border-radius: 50%; background: #fff;
+      box-shadow: 0 0 0 3px #333, 0 2px 8px rgba(0,0,0,0.5);
+      border: none; cursor: pointer;
+    }
+    .diff-hint { font-size: 12px !important; color: #555 !important; margin-bottom: 28px !important; }
+    .btn-play-diff {
+      width: 100%;
+      background: linear-gradient(135deg, #2a6e3f, #3aaa60);
+      color: #fff; border: 1px solid rgba(110,255,160,0.45); border-radius: 12px;
+      padding: 14px 60px; font-size: 18px; font-weight: 800; font-family: inherit;
+      cursor: pointer; letter-spacing: 1px; transition: all 0.15s ease;
+      box-shadow: 0 0 22px rgba(60,200,100,0.35);
+    }
+    .btn-play-diff:hover {
+      background: linear-gradient(135deg, #3a8e55, #4dcf78);
+      box-shadow: 0 0 36px rgba(60,200,100,0.60); transform: scale(1.04);
+    }
+
+    /* ── Game Over overlay ── */
+    .overlay-card.game-over h1 {
+      font-size: 52px; color: #ff4444;
+      text-shadow: 0 0 20px rgba(255,68,68,0.8), 0 0 50px rgba(255,68,68,0.4);
+      animation: pulseGlow 1.3s ease-in-out infinite;
+    }
+    .btn-try-again {
+      background: linear-gradient(135deg, #7a1a1a, #cc3333) !important;
+      border-color: rgba(255,100,100,0.45) !important;
+      box-shadow: 0 0 22px rgba(200,60,60,0.35) !important;
+    }
+    .btn-try-again:hover {
+      background: linear-gradient(135deg, #9a2a2a, #ee4444) !important;
+      box-shadow: 0 0 36px rgba(200,60,60,0.60) !important;
+    }
+
     /* ── Initial loading overlay ──
        Dismissed exclusively by main.js, once THREE.DefaultLoadingManager
        confirms every texture/model load has finished AND a frame has
@@ -399,6 +472,7 @@
   <div id="hud">
     <div id="hud-level">Level 1 / 4</div>
     <div id="hud-balls">Balls remaining: 1</div>
+    <div id="hud-lives"></div>
   </div>
 
   <!-- Level-complete / win overlay -->
