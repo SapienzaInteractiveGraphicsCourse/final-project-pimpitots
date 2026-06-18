@@ -745,7 +745,7 @@ export function createLamp(scene) {
 
   
     
-    const light = new THREE.PointLight(0xfff5e0, 1.1, 30, 1.5); // warm white
+    const light = new THREE.PointLight(0xfff5e0, 1.0, 30, 1.5); // warm white
     light.shadow.mapSize.width = 1024;  // Fixes the jagged, pixelated edges
     light.shadow.mapSize.height = 1024;
     light.position.set(sx, bulbY, 0);
@@ -836,6 +836,56 @@ export function createLoungeCorner(scene) {
     group.add(model);
   }, undefined, (err) => {
     console.error('[lounge_corner.glb] load error:', err);
+  });
+
+  scene.add(group);
+  return { group };
+}
+
+// ─── Dartboard (wall-mounted, multi-file glTF from Poly Haven) ────────────────
+/**
+ * Loads the dartboard glTF and hangs it on the back wall (+Z), centred,
+ * facing into the room. The model's native orientation has the playing face
+ * in its local XY plane with the thin (mounting) axis along +Z, so a 180° Y
+ * rotation turns the face inward toward the room.
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group }}
+ */
+export function createDartboard(scene) {
+  const group = new THREE.Group();
+  group.name  = 'dartboard';
+
+  const DART_DIAM = 1.3;   // target board diameter in scene units
+  const DART_CY   = 3.4;   // centre (bullseye) height — aligns with the window centre
+  const WALL_Z    = ROOM_D / 2;
+
+  const loader = new GLTFLoader();
+  loader.load('./blender_assets/dartboard/dartboard_1k.gltf', (gltf) => {
+    const model = gltf.scene;
+
+    // Scale to target diameter (face spans the two largest bbox axes).
+    const box  = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    model.scale.setScalar(DART_DIAM / Math.max(size.x, size.y));
+
+    model.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow    = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    // Face points +Z natively → rotate 180° so it faces -Z (into the room),
+    // then push the board flush against the back wall.
+    model.rotation.y = Math.PI;
+    const mounted = new THREE.Box3().setFromObject(model);
+    const depth   = mounted.getSize(new THREE.Vector3()).z;
+    model.position.set(0, DART_CY, WALL_Z - depth / 2 - 0.01);
+
+    group.add(model);
+  }, undefined, (err) => {
+    console.error('[dartboard_1k.gltf] load error:', err);
   });
 
   scene.add(group);

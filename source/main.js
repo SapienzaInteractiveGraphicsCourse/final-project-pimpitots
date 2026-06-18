@@ -28,7 +28,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
-import { createRoom, createTable, createLamp, createCueStick, createBallMesh, createLoungeCorner, TABLE_SURFACE_Y, BALL_Y } from './models.js';
+import { createRoom, createTable, createLamp, createCueStick, createBallMesh, createLoungeCorner, createDartboard, TABLE_SURFACE_Y, BALL_Y } from './models.js';
 import { generateTextures } from './textures.js';
 import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, BALL_RADIUS } from './physics.js';
 import { Controls } from './controls.js';
@@ -136,7 +136,7 @@ function init() {
   // ── Scene ──
   scene = new THREE.Scene();
   scene.background = _buildNightSkyBackground();
-  scene.fog = new THREE.Fog(0x080d20, 8, 30);
+  scene.fog = new THREE.Fog(0x080d20, 10, 35);
 
   // ── Cameras ──
   const aspect = window.innerWidth / window.innerHeight;
@@ -165,6 +165,7 @@ function init() {
   createTable(scene, texMap);
   lamp = createLamp(scene);
   createLoungeCorner(scene);
+  createDartboard(scene);
 
   // ── Cue stick ──
   cue = createCueStick(scene);
