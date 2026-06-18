@@ -177,9 +177,9 @@ export function createRoom(scene, texMap) {
   const glassMat = new THREE.MeshPhysicalMaterial({
     color:           0xaaccee,
     transparent:     true,
-    opacity:         0.15,
+    opacity:         0.1,
     roughness:       0.0,
-    metalness:       0.0,
+    metalness:       0.1,
     reflectivity:    0.9,
     envMapIntensity: 1.5,
     side:            THREE.DoubleSide,
@@ -243,9 +243,23 @@ export function createRoom(scene, texMap) {
     model.position.y -= scaledBox.min.y;
 
     model.traverse((child) => {
-      if (child.isMesh) {
+      if (child.isMesh && child.material) {
         child.castShadow    = true;
         child.receiveShadow = true;
+
+        // Brighten the dark-stained wood so it reads in the dim room:
+        // lift the base color, boost environment response, and add a faint
+        // self-illumination from its own texture so it never falls to black.
+        for (const mat of Array.isArray(child.material) ? child.material : [child.material]) {
+          mat.color?.multiplyScalar(1.8);
+          mat.envMapIntensity = 2.0;
+          if (mat.map) {
+            mat.emissiveMap       = mat.map;
+            mat.emissive          = new THREE.Color(0xffffff);
+            mat.emissiveIntensity = 0.18;
+          }
+          mat.needsUpdate = true;
+        }
       }
     });
 
@@ -886,6 +900,54 @@ export function createDartboard(scene) {
     group.add(model);
   }, undefined, (err) => {
     console.error('[dartboard_1k.gltf] load error:', err);
+  });
+
+  scene.add(group);
+  return { group };
+}
+
+// ─── Vintage Cabinet (multi-file glTF from Poly Haven) ────────────────────────
+/**
+ * Loads the vintage cabinet and stands it against the front wall (-Z), to the
+ * right of the lounge corner. The model is authored standing on its base with
+ * its doors facing +Z, so placing it on the -Z wall needs no rotation — the
+ * front already faces into the room. Its back is pushed flush to the wall.
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group }}
+ */
+export function createCabinet(scene) {
+  const group = new THREE.Group();
+  group.name  = 'cabinet';
+
+  const TARGET_H = 6;            // cabinet height in scene units (proportional to the room)
+  const CAB_X    = 3;            // centre X along the front wall (clear of the lounge corner)
+  const WALL_Z   = -ROOM_D / 2;
+
+  const loader = new GLTFLoader();
+  loader.load('./blender_assets/cabinet/vintage_cabinet_01_1k.gltf', (gltf) => {
+    const model = gltf.scene;
+
+    const box  = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    model.scale.setScalar(TARGET_H / size.y);
+
+    model.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow    = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    // Drop flush to floor and push the back against the -Z wall.
+    const scaled = new THREE.Box3().setFromObject(model);
+    model.position.y -= scaled.min.y;
+    model.position.x  = CAB_X;
+    model.position.z  = WALL_Z - scaled.min.z + 0.02;
+
+    group.add(model);
+  }, undefined, (err) => {
+    console.error('[vintage_cabinet_01_1k.gltf] load error:', err);
   });
 
   scene.add(group);
