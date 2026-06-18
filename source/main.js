@@ -114,10 +114,38 @@ let _levelTransitionTimeout = null;  // handle so Reset can cancel a pending adv
 // ─── HUD element refs (cached in _buildHUD) ───────────────────────────────────
 let hudLevelEl, hudBallsEl, overlayEl;
 
+// ─── Loading-overlay lifecycle state ─────────────────────────────────────────
+// See _maybeDismissLoader() / _dismissLoader() below for how these gate the
+// #loading-overlay dismissal.
+let _resourcesReady  = false; // true once THREE.DefaultLoadingManager.onLoad has fired
+let _framePainted    = false; // true once a frame has rendered after the render loop started
+let _loaderDismissed = false; // guards against double-dismissal
+let _loaderFallback  = null;  // setTimeout handle for the hard safety-net dismissal
+
 // ─── Entry Point ──────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', init);
 
 function init() {
+  // ── Loading overlay: start tracking resource loads before any are kicked off ──
+  // Every THREE.TextureLoader / THREE.GLTFLoader created below without an
+  // explicit manager argument registers itself on this singleton, so onLoad
+  // fires exactly once after every tracked item has finished or failed.
+  THREE.DefaultLoadingManager.onLoad = function () {
+    _resourcesReady = true;
+    _maybeDismissLoader();
+  };
+  THREE.DefaultLoadingManager.onError = function (url) {
+    console.error('[loading] failed to load resource:', url);
+  };
+  // Hard safety net: if onLoad somehow never fires, force the overlay closed
+  // after 15s instead of hanging indefinitely.
+  _loaderFallback = setTimeout(function () {
+    console.warn('[loading] fallback timeout reached — dismissing loading overlay without confirmed resource completion');
+    _resourcesReady = true;
+    _framePainted   = true;
+    _dismissLoader();
+  }, 15000);
+
   // ── Renderer ──
   const canvas = document.getElementById('glCanvas');
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -196,6 +224,50 @@ function init() {
 
   // ── Render loop ──
   animate();
+
+  // One rAF after animate() starts confirms the GPU has actually painted a
+  // frame. Combined with _resourcesReady (set by DefaultLoadingManager.onLoad
+  // above), this is what _maybeDismissLoader() waits on before hiding the
+  // overlay. The render loop keeps running, so by the time the last asset
+  // finishes loading the very next frame will already show it — well within
+  // the overlay's 0.6s fade-out.
+  requestAnimationFrame(function () {
+    _framePainted = true;
+    _maybeDismissLoader();
+  });
+}
+
+// ─── Loading Overlay ──────────────────────────────────────────────────────────
+
+/**
+ * Hides the loading overlay once both gating conditions are true:
+ *   1. _resourcesReady — DefaultLoadingManager.onLoad has fired (every
+ *      texture/model load initiated during init() has finished or failed).
+ *   2. _framePainted   — at least one frame has rendered since the loop started.
+ * Safe to call any number of times from any signal source.
+ */
+function _maybeDismissLoader() {
+  if (_resourcesReady && _framePainted) _dismissLoader();
+}
+
+/**
+ * Fades out and removes the loading overlay. Idempotent: clears the fallback
+ * timer and unhooks DefaultLoadingManager callbacks so neither can fire again.
+ */
+function _dismissLoader() {
+  if (_loaderDismissed) return;
+  _loaderDismissed = true;
+
+  clearTimeout(_loaderFallback);
+  THREE.DefaultLoadingManager.onLoad  = undefined;
+  THREE.DefaultLoadingManager.onError = undefined;
+
+  var el = document.getElementById('loading-overlay');
+  if (!el) return;
+  el.classList.add('fade-out');
+  setTimeout(function () {
+    if (el.parentNode) el.parentNode.removeChild(el);
+  }, 700);
 }
 
 // ─── Resize ───────────────────────────────────────────────────────────────────

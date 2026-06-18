@@ -356,12 +356,44 @@
       margin-right: 2px;
     }
 
+    /* ── Initial loading overlay ──
+       Dismissed exclusively by main.js, once THREE.DefaultLoadingManager
+       confirms every texture/model load has finished AND a frame has
+       rendered showing the result — see _dismissLoader() in source/main.js.
+       No CSS-driven auto-dismiss timer: a fixed-duration animation would hide
+       this overlay on a schedule unrelated to real load time. */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.62);
+      backdrop-filter: blur(8px);
+      z-index: 200;
+      opacity: 1;
+      transition: opacity 0.6s ease;
+    }
+    #loading-overlay.fade-out {
+      opacity: 0;
+      pointer-events: none;
+    }
+
   </style>
 </head>
 
 <body>
   <!-- Full-viewport WebGL canvas -->
   <canvas id="glCanvas"></canvas>
+
+  <!-- Initial loading overlay — visible immediately, dismissed by main.js after first render -->
+  <div id="loading-overlay">
+    <div class="overlay-card">
+      <span class="overlay-emoji spin">🎱</span>
+      <h2>Loading scene&hellip;</h2>
+      <p class="overlay-sub">Setting up your table&hellip;</p>
+    </div>
+  </div>
 
   <!-- HUD — top-left: level + balls remaining -->
   <div id="hud">
