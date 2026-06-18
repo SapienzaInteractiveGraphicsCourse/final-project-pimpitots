@@ -74,8 +74,8 @@ export const POCKET_POSITIONS = [
   [ TABLE_W / 2 - 0.22, -TABLE_H / 2 + 0.22],  // front-right
   [-TABLE_W / 2 + 0.22,  TABLE_H / 2 - 0.22],  // back-left
   [ TABLE_W / 2 - 0.22,  TABLE_H / 2 - 0.22],  // back-right
-  [ 0,                  -TABLE_H / 2 + 0.12],   // front-middle
-  [ 0,                   TABLE_H / 2 - 0.12],   // back-middle
+  [ 0,                  -TABLE_H / 2 - 0.18],   // front-middle (capture aligned with the visual pocket mouth)
+  [ 0,                   TABLE_H / 2 + 0.18],   // back-middle  (capture aligned with the visual pocket mouth)
 ];
 
 // Pocket exclusion zone radius for cushion-collision suppression.
@@ -93,7 +93,21 @@ function _isInPocket(ball) {
   for (const [px, pz] of POCKET_POSITIONS) {
     const dx = ball.x - px;
     const dz = ball.z - pz;
-    if (dx * dx + dz * dz < POCKET_RADIUS * POCKET_RADIUS) return true;
+    const d2 = dx * dx + dz * dz;
+
+    // Direct capture: ball center overlaps the visible pocket mouth.
+    if (d2 < POCKET_RADIUS * POCKET_RADIUS) return true;
+
+    // Throat capture: the ball is inside the pocket opening (where cushion
+    // bounce is suppressed) AND has crossed past the playing-area boundary, so
+    // it's out over the gap with no rail to rest on. Without this, a ball can
+    // stop in the ring between POCKET_RADIUS and POCKET_EXCLUSION_R and sit on
+    // the rail edge instead of dropping in.
+    if (d2 < POCKET_EXCLUSION_R2 &&
+        (ball.x < CUSHION_MIN_X || ball.x > CUSHION_MAX_X ||
+         ball.z < CUSHION_MIN_Z || ball.z > CUSHION_MAX_Z)) {
+      return true;
+    }
   }
   return false;
 }

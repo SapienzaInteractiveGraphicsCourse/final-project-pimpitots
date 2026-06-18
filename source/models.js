@@ -70,10 +70,11 @@ export function createRoom(scene, texMap) {
   const roomMesh = new THREE.Mesh(roomGeo, [wallMat, invisMat, wallMat, wallMat, wallMat, wallMat]);
   roomMesh.position.set(0, ROOM_H / 2, 0);
   roomMesh.name = 'roomBox';
-  // NOTE: receiveShadow intentionally omitted — Three.js shadow bias is inverted
+  // Three.js shadow bias is inverted
   // for BackSide faces, producing large black artifacts on the ceiling.
   // Wall shadow reception is handled by the separate floor plane instead.
   group.add(roomMesh);
+  roomMesh.receiveShadow = true;
 
   // Floor (separate plane so we can use the floor material)
   const floorGeo  = new THREE.PlaneGeometry(ROOM_W, ROOM_D);
@@ -428,9 +429,8 @@ function _buildRails(group, mat) {
 
 function _buildPockets(group, woodMat) {
   const SY             = TABLE_SURFACE_Y;
-  const HOLE_R         = 0.32;   // matches POCKET_RADIUS in physics.js
-  const DEPTH          = 0.20;
-  const MIDDLE_OUTWARD = 0.30;   // pushes side pockets outward into the rail
+  const HOLE_R = 0.32;   // matches POCKET_RADIUS in physics.js
+  const DEPTH  = 0.20;
 
   const holeMat = new THREE.MeshStandardMaterial({
     color:     0x060606,
@@ -438,14 +438,12 @@ function _buildPockets(group, woodMat) {
     metalness: 0.0,
   });
 
-  for (let i = 0; i < POCKET_POSITIONS.length; i++) {
-    const [px, pz] = POCKET_POSITIONS[i];
-    const isCorner  = i < 4;
-
-    // Middle pockets sit slightly outward (into the rail) so the opening
-    // aligns with the gap in the long rail rather than sitting proud of it.
+  for (const [px, pz] of POCKET_POSITIONS) {
+    // Visual mouth sits exactly at the physics capture point. The middle
+    // pockets' outward shift into the rail now lives in POCKET_POSITIONS
+    // (physics.js) so the two can never drift apart.
     const vx = px;
-    const vz = isCorner ? pz : pz + Math.sign(pz) * MIDDLE_OUTWARD;
+    const vz = pz;
 
     // Dark disc flush with felt — pocket mouth
     const disc = new THREE.Mesh(new THREE.CircleGeometry(HOLE_R, 24), holeMat);
@@ -870,8 +868,8 @@ export function createDartboard(scene) {
   const group = new THREE.Group();
   group.name  = 'dartboard';
 
-  const DART_DIAM = 1.3;   // target board diameter in scene units
-  const DART_CY   = 3.4;   // centre (bullseye) height — aligns with the window centre
+  const DART_DIAM = 1.5;   // target board diameter in scene units
+  const DART_CY   = 4;   // centre (bullseye) height — aligns with the window centre
   const WALL_Z    = ROOM_D / 2;
 
   const loader = new GLTFLoader();
@@ -886,7 +884,6 @@ export function createDartboard(scene) {
     model.traverse((child) => {
       if (child.isMesh) {
         child.castShadow    = true;
-        child.receiveShadow = true;
       }
     });
 
@@ -895,7 +892,7 @@ export function createDartboard(scene) {
     model.rotation.y = Math.PI;
     const mounted = new THREE.Box3().setFromObject(model);
     const depth   = mounted.getSize(new THREE.Vector3()).z;
-    model.position.set(0, DART_CY, WALL_Z - depth / 2 - 0.01);
+    model.position.set(-7.0, DART_CY, WALL_Z - depth / 2 - 0.01);
 
     group.add(model);
   }, undefined, (err) => {
@@ -935,7 +932,6 @@ export function createCabinet(scene) {
     model.traverse((child) => {
       if (child.isMesh) {
         child.castShadow    = true;
-        child.receiveShadow = true;
       }
     });
 
@@ -948,6 +944,68 @@ export function createCabinet(scene) {
     group.add(model);
   }, undefined, (err) => {
     console.error('[vintage_cabinet_01_1k.gltf] load error:', err);
+  });
+
+  scene.add(group);
+  return { group };
+}
+
+// ─── Metal Stools (multi-file glTF from Poly Haven) ───────────────────────────
+/**
+ * Loads the metal stool once and lines four of them up along the dartboard
+ * wall (+Z), evenly spaced and set a little in front of the wall. The model
+ * stands on the floor (y = 0) and is radially symmetric, so no rotation is
+ * needed.
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group }}
+ */
+export function createStools(scene) {
+  const group = new THREE.Group();
+  group.name  = 'stools';
+
+  const TARGET_H = 2.1;
+  const BASE_Z   = ROOM_D / 2;  // back wall (+Z)
+  // Each stool: [x, distanceFromWall] — varied depths so they look casually placed
+  const STOOLS = [
+    [-4.5,  2.8],
+    [-1.2,  1.6],
+    [ 2,  2.2],
+    [ 4.8,  1.3],
+  ];
+
+  const loader = new GLTFLoader();
+  loader.load('./blender_assets/stool/metal_stool_01_1k.gltf', (gltf) => {
+    const proto = gltf.scene;
+
+    // Scale to target height (model authored standing on the floor).
+    const box  = new THREE.Box3().setFromObject(proto);
+    const size = box.getSize(new THREE.Vector3());
+    proto.scale.setScalar(TARGET_H / size.y);
+
+    proto.traverse((child) => {
+      if (child.isMesh && child.material) {
+        child.castShadow    = true;
+        child.receiveShadow = true;
+        // Metal reads poorly in the dim far corner — boost environment response.
+        for (const mat of Array.isArray(child.material) ? child.material : [child.material]) {
+          mat.envMapIntensity = 2.0;
+          mat.needsUpdate     = true;
+        }
+      }
+    });
+
+    // Re-measure once to settle each clone flush on the floor.
+    const scaled = new THREE.Box3().setFromObject(proto);
+    const footY  = scaled.min.y;
+
+    for (const [x, dist] of STOOLS) {
+      const stool = proto.clone();
+      stool.position.set(x, -footY, BASE_Z - dist);
+      group.add(stool);
+    }
+  }, undefined, (err) => {
+    console.error('[metal_stool_01_1k.gltf] load error:', err);
   });
 
   scene.add(group);
