@@ -153,7 +153,7 @@ function init() {
   const ambientLight = new THREE.AmbientLight(0x404060, 0.25);
   scene.add(ambientLight);
 
-  const fillLight = new THREE.DirectionalLight(0x8090ff, 0.05);
+  const fillLight = new THREE.DirectionalLight(0x8090ff, 0.0);
   fillLight.position.set(-8, 6, 4);
   scene.add(fillLight);
 

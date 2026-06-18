@@ -29,8 +29,9 @@ const ROOM_H = 7.0;
 
 // Table-model-only dimensions (physics.js owns TABLE_W / TABLE_H)
 const TABLE_LEG_H = 0.72;  // table leg height (TABLE_SURFACE_Y - table panel thickness ~0.04)
-const RAIL_H      = 0.10;  // cushion rail height above felt
-const RAIL_W      = 0.30;  // cushion rail width (inward thickness)
+const RAIL_H      = 0.12;  // cushion rail height above felt
+const RAIL_W      = 0.52;  // cushion rail width (inward thickness)
+const POCKET_GAP  = 0.45;  // clearance per pocket opening (per rail side)
 
 // ─── Room ─────────────────────────────────────────────────────────────────────
 /**
@@ -62,8 +63,7 @@ export function createRoom(scene, texMap) {
   });
 
   // Room is a large box — we render its inside faces.
-  // Face index 1 (-X, left wall) uses an invisible material so the background
-  // shows through the window hole cut into the replacement left-wall planes below.
+  // Face index 1 (-X, left wall) uses invisMat so the window hole shows through.
   const invisMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false });
   const roomGeo  = new THREE.BoxGeometry(ROOM_W, ROOM_H, ROOM_D);
   // BoxGeometry face order: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z
@@ -216,9 +216,49 @@ export function createRoom(scene, texMap) {
   });
 
   // Diffuse moonlight coming through the window
-  const moonLight = new THREE.PointLight(0x8899cc, 0.12, 18);
+  const moonLight = new THREE.PointLight(0x8899cc, 0.12, 0, 0);
   moonLight.position.set(WALL_X + 0.6, WIN_CY + 0.2, WIN_CZ);
   group.add(moonLight);
+
+  // ── Door on right wall (x = +ROOM_W/2) ────────────────────────────────
+  const DOOR_CZ = 1.5;   // centre Z — mirrors the window on the opposite wall
+  const RIGHT_X = ROOM_W / 2;
+
+  const doorLoader = new GLTFLoader();
+  doorLoader.load('./blender_assets/door.glb', (gltf) => {
+    const model = gltf.scene;
+
+    const box  = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+
+    const TARGET_H = 4.4;          // height in scene units (~4.4 m — fits the room)
+    const TARGET_W = TARGET_H / 1.8; // door ratio: ~1.8:1 height-to-width ≈ 2.4 units wide
+
+    // Scale height uniformly, then independently widen the horizontal axis
+    // (local X is the door's width axis for a standard glTF door export)
+    model.scale.set(TARGET_W / size.x, TARGET_H / size.y, TARGET_H / size.y);
+
+    // Drop flush to floor
+    const scaledBox = new THREE.Box3().setFromObject(model);
+    model.position.y -= scaledBox.min.y;
+
+    model.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow    = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    // Face into the room (toward -X), flush against right wall
+    model.rotation.y = Math.PI / 2;
+    const rotBox = new THREE.Box3().setFromObject(model);
+    model.position.x = RIGHT_X - rotBox.getSize(new THREE.Vector3()).x / 2;
+    model.position.z = DOOR_CZ;
+
+    group.add(model);
+  }, undefined, (err) => {
+    console.error('[door.glb] load error:', err);
+  });
 
   scene.add(group);
   return { group };
@@ -277,47 +317,55 @@ export function createTable(scene, texMap) {
   group.add(bodyMesh);
 
   // ── Cushion rails (4 sections — skip corners for pocket openings) ─────
-  // Rails are BoxGeometry segments placed just outside the felt edge.
-  // We split each long side into two segments (left, right) with a gap at
-  // the middle pocket; short sides are single segments with gaps at ends.
   _buildRails(group, bodyMat);
 
-  // ── Pocket holes (dark discs flush with the felt) ─────────────────────
-  const pocketMat = new THREE.MeshStandardMaterial({
-    color:     0x0a0a0a,
-    roughness: 1.0,
-    metalness: 0.0,
-  });
+  // ── Pocket holes (depth cylinders + corner/side structure) ──────────
+  _buildPockets(group, bodyMat);
 
-  for (const [px, pz] of POCKET_POSITIONS) {
-    const pGeo  = new THREE.CircleGeometry(0.30, 24);
-    const pMesh = new THREE.Mesh(pGeo, pocketMat);
-    pMesh.rotation.x = -Math.PI / 2;
-    pMesh.position.set(px, TABLE_SURFACE_Y + 0.001, pz); // 1mm above felt to avoid Z-fighting
-    pMesh.name = 'pocket';
-    group.add(pMesh);
-  }
+  // ── Legs — turned wood profile (LatheGeometry) ───────────────────────
+  // Clone wood texture so we can set a leg-specific UV repeat without
+  // affecting the rail/body material that shares the same texture object.
+  const legDiffTex = texMap.wood.map.clone();
+  legDiffTex.repeat.set(1, 2);
+  legDiffTex.needsUpdate = true;
+  const legRoughTex = texMap.wood.roughnessMap.clone();
+  legRoughTex.repeat.set(1, 2);
+  legRoughTex.needsUpdate = true;
 
-  // ── Legs ──────────────────────────────────────────────────────────────
   const legMat = new THREE.MeshStandardMaterial({
-    map:          texMap.wood.map,
-    roughnessMap: texMap.wood.roughnessMap,
-    roughness:    0.8,
-    metalness:    0.0,
+    map:          legDiffTex,
+    normalMap:    texMap.wood.normalMap,
+    roughnessMap: legRoughTex,
+    roughness:    0.65,
+    metalness:    0.05,
   });
 
-  const legOffsets = [
-    [-TABLE_W / 2 + 0.2,  TABLE_H / 2 - 0.2],
-    [ TABLE_W / 2 - 0.2,  TABLE_H / 2 - 0.2],
-    [-TABLE_W / 2 + 0.2, -TABLE_H / 2 + 0.2],
-    [ TABLE_W / 2 - 0.2, -TABLE_H / 2 + 0.2],
+  // Classic billiard-table turned leg: wide foot pad → tapered ankle → straight
+  // shaft → decorative upper swell → flared capital connecting to frame apron.
+  const legProfile = [
+    new THREE.Vector2(0.136, 0.000),  // foot pad — widest point at floor
+    new THREE.Vector2(0.120, 0.028),  // foot taper up
+    new THREE.Vector2(0.068, 0.075),  // ankle
+    new THREE.Vector2(0.057, 0.160),  // lower shaft
+    new THREE.Vector2(0.052, 0.460),  // shaft mid
+    new THREE.Vector2(0.060, 0.540),  // upper swell begins
+    new THREE.Vector2(0.078, 0.590),  // decorative bead
+    new THREE.Vector2(0.064, 0.630),  // neck
+    new THREE.Vector2(0.109, 0.690),  // capital flare
+    new THREE.Vector2(0.120, 0.720),  // capital top — meets frame
   ];
 
-  for (const [lx, lz] of legOffsets) {
-    const legGeo  = new THREE.BoxGeometry(0.12, TABLE_LEG_H, 0.12);
+  const legGeo = new THREE.LatheGeometry(legProfile, 20);
+
+  // Position at outer corners of the frame apron (RAIL_W extends beyond TABLE_W/2)
+  const LEG_X = TABLE_W / 2 + RAIL_W * 0.5;
+  const LEG_Z = TABLE_H / 2 + RAIL_W * 0.5;
+
+  for (const [lx, lz] of [[-LEG_X, LEG_Z], [LEG_X, LEG_Z], [-LEG_X, -LEG_Z], [LEG_X, -LEG_Z]]) {
     const legMesh = new THREE.Mesh(legGeo, legMat);
-    legMesh.position.set(lx, TABLE_LEG_H / 2, lz);
-    legMesh.castShadow = true;
+    legMesh.position.set(lx, 0, lz);
+    legMesh.castShadow    = true;
+    legMesh.receiveShadow = true;
     legMesh.name = 'leg';
     group.add(legMesh);
   }
@@ -326,23 +374,16 @@ export function createTable(scene, texMap) {
   return { group, surfaceMesh };
 }
 
-/**
- * Builds the 4-sided cushion rail assembly for the table.
- * Each long rail is split into two segments with a middle-pocket gap.
- * Each short rail is a single segment with corner gaps.
- * @param {THREE.Group} group
- * @param {THREE.Material} mat
- */
+// ─── Rail builder ─────────────────────────────────────────────────────────────
+
 function _buildRails(group, mat) {
   const RH  = RAIL_H;
   const RW  = RAIL_W;
-  const TY  = TABLE_SURFACE_Y + RH / 2;  // rail center Y (sits on top of felt level)
-  const HW  = TABLE_W / 2;               // half table width  (X axis)
-  const HH  = TABLE_H / 2;               // half table height (Z axis)
-  const GAP = 0.55;                      // clearance per pocket opening (per side)
+  const TY  = TABLE_SURFACE_Y + RH / 2;
+  const HW  = TABLE_W / 2;
+  const HH  = TABLE_H / 2;
+  const GAP = POCKET_GAP;
 
-  // Helper: create one rail BoxGeometry segment and add it to the table group.
-  // px,py,pz = center position;  sx,sy,sz = box dimensions
   function addRail(px, py, pz, sx, sy, sz) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
     mesh.position.set(px, py, pz);
@@ -352,30 +393,70 @@ function _buildRails(group, mat) {
     group.add(mesh);
   }
 
-  // ── Long rails (run parallel to X, placed at z = ±(HH + RW/2)) ──────────
-  // Each long rail is split into TWO segments by a middle-pocket gap at x = 0.
-  // Left segment  covers x from -(HW - GAP) to -GAP  → length = HW - 2*GAP, center = -(HW/2)
-  // Right segment covers x from  +GAP to  (HW - GAP) → length = HW - 2*GAP, center = +(HW/2)
-  const longLen = HW - 2 * GAP;  // = 4.5 - 1.1 = 3.4 units
-  const cx_L    = -(HW / 2);     // = -2.25
-  const cx_R    =  (HW / 2);     // = +2.25
+  // Long rails (parallel to X), split into two segments at the middle pocket gap
+  const longLen = HW - 2 * GAP;
+  const cx_L    = -(HW / 2);
+  const cx_R    =  (HW / 2);
 
-  // Front long rails (z = -HH - RW/2 = -2.4)
   addRail(cx_L, TY, -(HH + RW / 2), longLen, RH, RW);
   addRail(cx_R, TY, -(HH + RW / 2), longLen, RH, RW);
-  // Back long rails  (z = +HH + RW/2 = +2.4)
   addRail(cx_L, TY,  (HH + RW / 2), longLen, RH, RW);
   addRail(cx_R, TY,  (HH + RW / 2), longLen, RH, RW);
 
-  // ── Short rails (run parallel to Z, placed at x = ±(HW + RW/2)) ─────────
-  // Each short rail (head/foot cushion) is a single segment with corner gaps.
-  // z from -(HH - GAP) to +(HH - GAP) → length = TABLE_H - 2*GAP, center = 0
-  const shortLen = TABLE_H - 2 * GAP;  // = 4.5 - 1.1 = 3.4 units
+  // Short rails (parallel to Z), single segment with corner gaps
+  const shortLen = TABLE_H - 2 * GAP;
 
-  // Left short rail  (x = -HW - RW/2 = -4.65)
   addRail(-(HW + RW / 2), TY, 0, RW, RH, shortLen);
-  // Right short rail (x = +HW + RW/2 = +4.65)
   addRail( (HW + RW / 2), TY, 0, RW, RH, shortLen);
+}
+
+// ─── Pocket helpers ───────────────────────────────────────────────────────────
+
+function _buildPockets(group, woodMat) {
+  const SY             = TABLE_SURFACE_Y;
+  const HOLE_R         = 0.32;   // matches POCKET_RADIUS in physics.js
+  const DEPTH          = 0.20;
+  const MIDDLE_OUTWARD = 0.30;   // pushes side pockets outward into the rail
+
+  const holeMat = new THREE.MeshStandardMaterial({
+    color:     0x060606,
+    roughness: 1.0,
+    metalness: 0.0,
+  });
+
+  for (let i = 0; i < POCKET_POSITIONS.length; i++) {
+    const [px, pz] = POCKET_POSITIONS[i];
+    const isCorner  = i < 4;
+
+    // Middle pockets sit slightly outward (into the rail) so the opening
+    // aligns with the gap in the long rail rather than sitting proud of it.
+    const vx = px;
+    const vz = isCorner ? pz : pz + Math.sign(pz) * MIDDLE_OUTWARD;
+
+    // Dark disc flush with felt — pocket mouth
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(HOLE_R, 24), holeMat);
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.set(vx, SY + 0.001, vz);
+    disc.name = 'pocket_disc';
+    group.add(disc);
+
+    // Tapered open cylinder — depth illusion when viewed at an angle
+    const cyl = new THREE.Mesh(
+      new THREE.CylinderGeometry(HOLE_R, HOLE_R * 0.75, DEPTH, 20, 1, true),
+      holeMat
+    );
+    cyl.position.set(vx, SY - DEPTH / 2, vz);
+    cyl.name = 'pocket_cyl';
+    group.add(cyl);
+
+    // Bottom cap so the pocket doesn't look hollow from steep angles
+    const cap = new THREE.Mesh(new THREE.CircleGeometry(HOLE_R * 0.75, 20), holeMat);
+    cap.rotation.x = -Math.PI / 2;
+    cap.position.set(vx, SY - DEPTH, vz);
+    cap.name = 'pocket_cap';
+    group.add(cap);
+
+  }
 }
 
 // ─── Cue Stick ────────────────────────────────────────────────────────────────
@@ -664,7 +745,7 @@ export function createLamp(scene) {
 
   
     
-    const light = new THREE.PointLight(0xfff5e0, 1, 25, 2); // warm white
+    const light = new THREE.PointLight(0xfff5e0, 1.1, 30, 1.5); // warm white
     light.shadow.mapSize.width = 1024;  // Fixes the jagged, pixelated edges
     light.shadow.mapSize.height = 1024;
     light.position.set(sx, bulbY, 0);
