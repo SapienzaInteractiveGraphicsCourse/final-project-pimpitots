@@ -884,7 +884,35 @@ export function createPainting(scene) {
 
     model.traverse((child) => {
       if (child.isMesh && child.material) {
-        child.castShadow    = true;
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        const matName = (mats[0]?.name || '').toLowerCase();
+
+        // The model ships a thin "glass" pane (material "Bfx.Mat.glass") sitting
+        // ~1mm in front of the canvas. With no transparency authored it renders
+        // opaque and coplanar with the image. Hide it — serves no purpose here.
+        if (matName.includes('glass')) {
+          child.visible = false;
+          return;
+        }
+
+        // The canvas image plane (material "Bfx.Painting.img") sits at local
+        // y ≈ 25 µm — essentially coplanar with the frame's backing at y ≈ 0.
+        // That near-zero depth gap makes the depth buffer flip winner per pixel,
+        // producing the uniform grid/moiré. polygonOffset biases the image's
+        // depth toward the camera so it always wins cleanly over the backing,
+        // without moving the geometry (a positional nudge can hide it behind
+        // the backing depending on orientation).
+        if (matName.includes('painting') || matName.includes('img')) {
+          for (const m of mats) {
+            m.polygonOffset       = true;
+            m.polygonOffsetFactor = -1;
+            m.polygonOffsetUnits  = -1;
+            if (m.map) m.map.anisotropy = 8;   // crisp the detailed image at grazing angles
+            m.needsUpdate = true;
+          }
+        }
+
+        child.castShadow = true;
       }
     });
 
@@ -1148,6 +1176,56 @@ export function createPlant(scene) {
     group.add(model);
   }, undefined, (err) => {
     console.error('[plant/potted_plant_01_1k.gltf] load error:', err);
+  });
+
+  scene.add(group);
+  return { group };
+}
+
+// ─── Coat Rack (back/stool wall, +Z) ─────────────────────────────────────────
+/**
+ * Loads the wall-mounted coat rack and fixes it to the back wall (+Z), to the
+ * left of the fancy picture frame. The model is authored lying flat: back plate
+ * at y=0, pegs pointing +Y. Rx(-π/2) maps +Y → -Z so the pegs project into
+ * the room and the back plate faces the wall.
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group }}
+ */
+export function createCoatRack(scene) {
+  const group = new THREE.Group();
+  group.name  = 'coatRack';
+
+  const TARGET_W = 2.5;         // rack width in scene units
+  const RACK_X   = 8;        // left of frame2 (frame2 centre at x=0, half-width 1.5)
+  const RACK_CY  = 4.5;         // centre height — matches the painting
+  const WALL_Z   = ROOM_D / 2;  // back wall +Z
+
+  const loader = new GLTFLoader();
+  loader.load('./blender_assets/coat_rack.glb', (gltf) => {
+    const proto = gltf.scene;
+
+    const box  = new THREE.Box3().setFromObject(proto);
+    const size = box.getSize(new THREE.Vector3());
+    proto.scale.setScalar(TARGET_W / size.x);
+
+    proto.traverse((child) => {
+      if (child.isMesh) child.castShadow = true;
+    });
+
+    // Rx(-π/2): native +Y → world -Z  →  pegs stick into room, back plate faces wall
+    proto.rotation.x = -Math.PI / 2;
+    const mounted = new THREE.Box3().setFromObject(proto);
+    const posZ = WALL_Z - mounted.max.z - 0.01;
+
+    // Two racks placed edge-to-edge: first at RACK_X, second immediately to the left
+    for (const xOffset of [0, -TARGET_W]) {
+      const rack = proto.clone();
+      rack.position.set(RACK_X + xOffset, RACK_CY, posZ);
+      group.add(rack);
+    }
+  }, undefined, (err) => {
+    console.error('[coat_rack.glb] load error:', err);
   });
 
   scene.add(group);
