@@ -54,6 +54,13 @@ export function generateTextures() {
   const wallRoughTex = wallLoader.load('./textures/wall/roughness.jpg');
   wallColorTex.encoding = THREE.sRGBEncoding;
 
+  // ── Wood020 (window frame + skirting boards — aged/rougher wood) ─────────
+  const wood020Loader    = new THREE.TextureLoader();
+  const wood020ColorTex  = wood020Loader.load('./textures/wood020/color.jpg');
+  const wood020NormalTex = wood020Loader.load('./textures/wood020/normal.jpg');
+  const wood020RoughTex  = wood020Loader.load('./textures/wood020/roughness.jpg');
+  wood020ColorTex.encoding = THREE.sRGBEncoding;
+
   // Apply repeat wrapping where needed
   [feltColorTex, feltNormalTex, feltRoughTex].forEach(t => {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -71,10 +78,15 @@ export function generateTextures() {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.repeat.set(4, 2);
   });
+  [wood020ColorTex, wood020NormalTex, wood020RoughTex].forEach(t => {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(3, 1);
+  });
 
   return {
     felt:         { map: feltColorTex,  normalMap: feltNormalTex,  roughnessMap: feltRoughTex  },
-    wood:         { map: woodColorTex,  normalMap: woodNormalTex,  roughnessMap: woodRoughTex  },
+    wood:         { map: woodColorTex,  normalMap: woodNormalTex,  roughnessMap: woodRoughTex },
+    wood020:      { map: wood020ColorTex, normalMap: wood020NormalTex, roughnessMap: wood020RoughTex },
     floor:        { map: floorColorTex, normalMap: floorNormalTex, roughnessMap: floorRoughTex, aoMap: floorAOTex },
     wall:         { map: wallColorTex, normalMap: wallNormTex, roughnessMap: wallRoughTex },
     ball:         { roughnessMap: ballRoughTex },

@@ -29,7 +29,7 @@ const ROOM_H = 7.0;
 
 // Table-model-only dimensions (physics.js owns TABLE_W / TABLE_H)
 const TABLE_LEG_H = 0.72;  // table leg height (TABLE_SURFACE_Y - table panel thickness ~0.04)
-const RAIL_H      = 0.12;  // cushion rail height above felt
+const RAIL_H      = 0.18;  // cushion rail height above felt
 const RAIL_W      = 0.52;  // cushion rail width (inward thickness)
 const POCKET_GAP  = 0.45;  // clearance per pocket opening (per rail side)
 
@@ -93,9 +93,11 @@ export function createRoom(scene, texMap) {
   const SK_D = 0.04;  // protrusion from wall
 
   const skirtMat = new THREE.MeshStandardMaterial({
-    color:     0x1a1008,  // near-black dark mahogany
-    roughness: 0.6,
-    metalness: 0.0,
+    map:          texMap.wood020.map,
+    normalMap:    texMap.wood020.normalMap,
+    roughnessMap: texMap.wood020.roughnessMap,
+    roughness:    0.8,
+    metalness:    0.0,
   });
 
   // Each entry: [boxWidth, boxDepth, centerX, centerZ, rotationY]
@@ -191,11 +193,10 @@ export function createRoom(scene, texMap) {
   glassMesh.name = 'windowGlass';
   group.add(glassMesh);
 
-  // Frame — same wood PBR texture as the table rails
   const frameMat = new THREE.MeshStandardMaterial({
-    map:          texMap.wood.map,
-    normalMap:    texMap.wood.normalMap,
-    roughnessMap: texMap.wood.roughnessMap,
+    map:          texMap.wood020.map,
+    normalMap:    texMap.wood020.normalMap,
+    roughnessMap: texMap.wood020.roughnessMap,
     roughness:    0.8,
     metalness:    0.0,
   });
@@ -337,6 +338,7 @@ export function createTable(scene, texMap) {
   // ── Pocket holes (depth cylinders + corner/side structure) ──────────
   _buildPockets(group, bodyMat);
 
+
   // ── Legs — turned wood profile (LatheGeometry) ───────────────────────
   // Clone wood texture so we can set a leg-specific UV repeat without
   // affecting the rail/body material that shares the same texture object.
@@ -352,7 +354,7 @@ export function createTable(scene, texMap) {
     normalMap:    texMap.wood.normalMap,
     roughnessMap: legRoughTex,
     roughness:    0.65,
-    metalness:    0.05,
+    metalness:         0.05,
   });
 
   // Classic billiard-table turned leg: wide foot pad → tapered ankle → straight
@@ -1219,13 +1221,159 @@ export function createCoatRack(scene) {
     const posZ = WALL_Z - mounted.max.z - 0.01;
 
     // Two racks placed edge-to-edge: first at RACK_X, second immediately to the left
-    for (const xOffset of [0, -TARGET_W]) {
+    for (const xOffset of [0, -TARGET_W-0.2]) {
       const rack = proto.clone();
       rack.position.set(RACK_X + xOffset, RACK_CY, posZ);
       group.add(rack);
     }
   }, undefined, (err) => {
     console.error('[coat_rack.glb] load error:', err);
+  });
+
+  scene.add(group);
+  return { group };
+}
+
+// ─── Potted Plant 2 (front wall, right of cabinet) ────────────────────────────
+/**
+ * Loads potted_plant_02 and places it on the floor against the front wall (-Z),
+ * to the right of the vintage cabinet. Y-up upright model, no rotation needed.
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group }}
+ */
+export function createPlant2(scene) {
+  const group = new THREE.Group();
+  group.name  = 'plant2';
+
+  const TARGET_H = 2.5;          // height in scene units
+  const PLANT2_X = 8.0;          // right of cabinet (cabinet centred at x=3)
+  const WALL_Z   = -ROOM_D / 2;  // front wall -Z
+
+  const loader = new GLTFLoader();
+  loader.load('./blender_assets/plant2/potted_plant_02_1k.gltf', (gltf) => {
+    const model = gltf.scene;
+
+    const box  = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    model.scale.setScalar(TARGET_H / size.y);
+
+    model.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow    = true;
+      }
+    });
+
+    const scaledBox = new THREE.Box3().setFromObject(model);
+    model.position.y = -scaledBox.min.y;
+    model.position.x = PLANT2_X;
+    model.position.z = WALL_Z - scaledBox.min.z + 1;
+
+    group.add(model);
+  }, undefined, (err) => {
+    console.error('[plant2/potted_plant_02_1k.gltf] load error:', err);
+  });
+
+  scene.add(group);
+  return { group };
+}
+
+// ─── Painting 3 (right wall, +X, beside the door) ────────────────────────────
+/**
+ * Loads painting3.glb and hangs it on the right wall (+X), on the -Z side of
+ * the door. The frame is authored lying flat in the XZ plane with Y as the
+ * thin depth axis and the face toward low-Y values.
+ *
+ * rotation.set(π/2, -π/2, π) maps native-Y → world +X (back at wall, face
+ * into room), native-Z → world +Y (height vertical), native-X → world +Z
+ * (width horizontal).
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group }}
+ */
+export function createPainting3(scene) {
+  const group = new THREE.Group();
+  group.name  = 'painting3';
+
+  const TARGET_W  = 2.5;         // frame width in scene units
+  const PAINT3_CY = 4.2;         // centre height
+  const PAINT3_Z  = -4.0;        // Z on the right wall (-Z side, clear of door at z≈1.5)
+  const WALL_X    = ROOM_W / 2;  // right wall +X
+
+  const loader = new GLTFLoader();
+  loader.load('./blender_assets/painting4.glb', (gltf) => {
+    const model = gltf.scene;
+
+    const box  = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    model.scale.setScalar(TARGET_W / size.x);
+
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      const n = child.name.toLowerCase();
+      // Hide the glass pane
+      if (n.includes('glass')) { child.visible = false; return; }
+      child.castShadow = true;
+      if (n.includes('painting')) {
+        // Push canvas forward so it sits flush with the frame opening
+        child.material = child.material.clone();
+        child.material.polygonOffset       = true;
+        child.material.polygonOffsetFactor = -1;
+        child.material.polygonOffsetUnits  = -1;
+        // Grow the canvas (±0.252 × ±0.345) out to the frame's inner edge so the
+        // image fills the opening instead of leaving a gap. X,Z in-plane; Y thin.
+        child.scale.set(1.09, 1, 1.09);
+      } else if (!n.includes('frame')) {
+        // Backing → black mount. Native backing (±0.2496 × ±0.3437) is smaller
+        // than the painting, so the wall shows in the gap up to the frame's
+        // inner edge. Grow it in-plane (X,Z; Y is thickness) to tuck under the
+        // frame (outer ±0.2745 × ±0.3801) and block the wall behind the canvas.
+        child.material = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 1, metalness: 0 });
+        child.scale.set(1.09, 1, 1.09);
+      }
+    });
+
+    model.rotation.set(Math.PI / 2 , 0, Math.PI / 2);
+    const mounted = new THREE.Box3().setFromObject(model);
+    // mounted.max.x is the wall-facing (back) side
+    model.position.set(WALL_X - mounted.max.x - 0.01, PAINT3_CY, PAINT3_Z);
+
+    group.add(model);
+  }, undefined, (err) => {
+    console.error('[painting4.glb] load error:', err);
+  });
+
+  scene.add(group);
+  return { group };
+}
+
+// ─── Potted Plant 2 — Corner (back-right corner, right of door) ───────────────
+export function createPlant2Corner(scene) {
+  const group = new THREE.Group();
+  group.name  = 'plant2corner';
+
+  const TARGET_H = 2.5;
+  const PLANT_X  =  8.5;   // near right wall (+X = 11)
+  const PLANT_Z  =  6.5;   // near back wall  (+Z = 9)
+
+  const loader = new GLTFLoader();
+  loader.load('./blender_assets/plant2/potted_plant_02_1k.gltf', (gltf) => {
+    const model = gltf.scene;
+
+    const box  = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    model.scale.setScalar(TARGET_H / size.y);
+
+    model.traverse((child) => {
+      if (child.isMesh) child.castShadow = true;
+    });
+
+    const scaledBox = new THREE.Box3().setFromObject(model);
+    model.position.set(PLANT_X, -scaledBox.min.y, PLANT_Z);
+
+    group.add(model);
+  }, undefined, (err) => {
+    console.error('[plant2corner] load error:', err);
   });
 
   scene.add(group);
