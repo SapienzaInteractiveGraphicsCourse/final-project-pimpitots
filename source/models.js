@@ -854,6 +854,85 @@ export function createLoungeCorner(scene) {
   return { group };
 }
 
+// ─── Wall Painting (single .glb, framed) ──────────────────────────────────────
+/**
+ * Loads the framed painting and hangs it on the front wall (-Z), above the
+ * lounge couch. The model is authored lying face-up (thin axis = Y, image
+ * normal +Y), so a +90° X rotation stands it up with the image facing +Z
+ * (into the room).
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group }}
+ */
+export function createPainting(scene) {
+  const group = new THREE.Group();
+  group.name  = 'painting';
+
+  const TARGET_W = 6;             // painting width in scene units
+  const PAINT_X  = -7.5;            // centred above the couch (same X as the lounge corner)
+  const PAINT_CY = 4.5;             // centre height on the wall
+  const WALL_Z   = -ROOM_D / 2;     // front wall
+
+  const loader = new GLTFLoader();
+  loader.load('./blender_assets/painting1.glb', (gltf) => {
+    const model = gltf.scene;
+
+    // Scale to target width (X is the painting's width axis natively).
+    const box  = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    model.scale.setScalar(TARGET_W / size.x);
+
+    model.traverse((child) => {
+      if (child.isMesh && child.material) {
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        const matName = (mats[0]?.name || '').toLowerCase();
+
+        // The model ships a thin "glass" pane (material "Bfx.Mat.glass") sitting
+        // ~1mm in front of the canvas. With no transparency authored it renders
+        // opaque and coplanar with the image. Hide it — serves no purpose here.
+        if (matName.includes('glass')) {
+          child.visible = false;
+          return;
+        }
+
+        // The canvas image plane (material "Bfx.Painting.img") sits at local
+        // y ≈ 25 µm — essentially coplanar with the frame's backing at y ≈ 0.
+        // That near-zero depth gap makes the depth buffer flip winner per pixel,
+        // producing the uniform grid/moiré. polygonOffset biases the image's
+        // depth toward the camera so it always wins cleanly over the backing,
+        // without moving the geometry (a positional nudge can hide it behind
+        // the backing depending on orientation).
+        if (matName.includes('painting') || matName.includes('img')) {
+          for (const m of mats) {
+            m.polygonOffset       = true;
+            m.polygonOffsetFactor = -1;
+            m.polygonOffsetUnits  = -1;
+            if (m.map) m.map.anisotropy = 8;   // crisp the detailed image at grazing angles
+            m.needsUpdate = true;
+          }
+        }
+
+        child.castShadow = true;
+      }
+    });
+
+    // Stand it up and face the room. rotation.set(π/2, 0, π) produces the
+    // same rotation matrix as the original two-step (Rx then world-Ry),
+    // but as a single clean Euler assignment with no floating-point drift.
+    model.rotation.set(Math.PI / 2, 0, Math.PI);
+    const mounted = new THREE.Box3().setFromObject(model);
+    const depth   = mounted.getSize(new THREE.Vector3()).z;
+    model.position.set(PAINT_X, PAINT_CY, WALL_Z + depth / 2 + 0.03);
+
+    group.add(model);
+  }, undefined, (err) => {
+    console.error('[painting1.glb] load error:', err);
+  });
+
+  scene.add(group);
+  return { group };
+}
+
 // ─── Dartboard (wall-mounted, multi-file glTF from Poly Haven) ────────────────
 /**
  * Loads the dartboard glTF and hangs it on the back wall (+Z), centred,
@@ -964,7 +1043,7 @@ export function createStools(scene) {
   const group = new THREE.Group();
   group.name  = 'stools';
 
-  const TARGET_H = 2.1;
+  const TARGET_H = 2;
   const BASE_Z   = ROOM_D / 2;  // back wall (+Z)
   // Each stool: [x, distanceFromWall] — varied depths so they look casually placed
   const STOOLS = [
@@ -1006,6 +1085,147 @@ export function createStools(scene) {
     }
   }, undefined, (err) => {
     console.error('[metal_stool_01_1k.gltf] load error:', err);
+  });
+
+  scene.add(group);
+  return { group };
+}
+
+// ─── Fancy Picture Frame (back/stool wall, +Z) ────────────────────────────────
+/**
+ * Loads the fancy picture frame and hangs it on the back wall (+Z), centered
+ * above the stools. The model's face is in the XY plane facing +Z, so a 180°
+ * Y rotation makes it face -Z into the room.
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group }}
+ */
+export function createFrame2(scene) {
+  const group = new THREE.Group();
+  group.name  = 'frame2';
+
+  const TARGET_W  = 3.0;         // frame width in scene units
+  const FRAME2_X  = 0;           // centred above the stool row
+  const FRAME2_CY = 4.5;         // centre height (stools are ~2 units tall)
+  const WALL_Z    = ROOM_D / 2;  // back wall +Z
+
+  const loader = new GLTFLoader();
+  loader.load('./blender_assets/frame2/fancy_picture_frame_01_1k.gltf', (gltf) => {
+    const model = gltf.scene;
+
+    const box  = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    model.scale.setScalar(TARGET_W / size.x);
+
+    model.traverse((child) => {
+      if (child.isMesh) child.castShadow = true;
+    });
+
+    // Face points +Z natively → rotate 180° so it faces -Z (into the room)
+    model.rotation.y = Math.PI;
+    const mounted = new THREE.Box3().setFromObject(model);
+    // mounted.max.z is the wall-facing side; push it flush to the back wall
+    model.position.set(FRAME2_X, FRAME2_CY, WALL_Z - mounted.max.z - 0.01);
+
+    group.add(model);
+  }, undefined, (err) => {
+    console.error('[frame2/fancy_picture_frame_01_1k.gltf] load error:', err);
+  });
+
+  scene.add(group);
+  return { group };
+}
+
+// ─── Potted Plant (front wall, between couch and cabinet) ─────────────────────
+/**
+ * Loads the potted plant and places it on the floor against the front wall
+ * (-Z), between the lounge corner and the vintage cabinet. The model is
+ * authored standing upright (Y-up) so no rotation is needed.
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group }}
+ */
+export function createPlant(scene) {
+  const group = new THREE.Group();
+  group.name  = 'plant';
+
+  const TARGET_H = 3;          // plant height in scene units
+  const PLANT_X  = -2.0;         // between couch (x≈-7.5) and cabinet (x=3)
+  const WALL_Z   = -ROOM_D / 2;  // front wall -Z
+
+  const loader = new GLTFLoader();
+  loader.load('./blender_assets/plant/potted_plant_01_1k.gltf', (gltf) => {
+    const model = gltf.scene;
+
+    const box  = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    model.scale.setScalar(TARGET_H / size.y);
+
+    model.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow    = true;
+      }
+    });
+
+    // Drop flush to floor; push back of pot against the front wall
+    const scaledBox = new THREE.Box3().setFromObject(model);
+    model.position.y = -scaledBox.min.y;
+    model.position.x = PLANT_X;
+    model.position.z = WALL_Z - scaledBox.min.z + 0.1;
+
+    group.add(model);
+  }, undefined, (err) => {
+    console.error('[plant/potted_plant_01_1k.gltf] load error:', err);
+  });
+
+  scene.add(group);
+  return { group };
+}
+
+// ─── Coat Rack (back/stool wall, +Z) ─────────────────────────────────────────
+/**
+ * Loads the wall-mounted coat rack and fixes it to the back wall (+Z), to the
+ * left of the fancy picture frame. The model is authored lying flat: back plate
+ * at y=0, pegs pointing +Y. Rx(-π/2) maps +Y → -Z so the pegs project into
+ * the room and the back plate faces the wall.
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group }}
+ */
+export function createCoatRack(scene) {
+  const group = new THREE.Group();
+  group.name  = 'coatRack';
+
+  const TARGET_W = 2.5;         // rack width in scene units
+  const RACK_X   = 8;        // left of frame2 (frame2 centre at x=0, half-width 1.5)
+  const RACK_CY  = 4.5;         // centre height — matches the painting
+  const WALL_Z   = ROOM_D / 2;  // back wall +Z
+
+  const loader = new GLTFLoader();
+  loader.load('./blender_assets/coat_rack.glb', (gltf) => {
+    const proto = gltf.scene;
+
+    const box  = new THREE.Box3().setFromObject(proto);
+    const size = box.getSize(new THREE.Vector3());
+    proto.scale.setScalar(TARGET_W / size.x);
+
+    proto.traverse((child) => {
+      if (child.isMesh) child.castShadow = true;
+    });
+
+    // Rx(-π/2): native +Y → world -Z  →  pegs stick into room, back plate faces wall
+    proto.rotation.x = -Math.PI / 2;
+    const mounted = new THREE.Box3().setFromObject(proto);
+    const posZ = WALL_Z - mounted.max.z - 0.01;
+
+    // Two racks placed edge-to-edge: first at RACK_X, second immediately to the left
+    for (const xOffset of [0, -TARGET_W]) {
+      const rack = proto.clone();
+      rack.position.set(RACK_X + xOffset, RACK_CY, posZ);
+      group.add(rack);
+    }
+  }, undefined, (err) => {
+    console.error('[coat_rack.glb] load error:', err);
   });
 
   scene.add(group);

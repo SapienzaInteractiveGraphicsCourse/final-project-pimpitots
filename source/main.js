@@ -28,7 +28,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
-import { createRoom, createTable, createLamp, createCueStick, createBallMesh, createLoungeCorner, createDartboard, createCabinet, createStools, TABLE_SURFACE_Y, BALL_Y } from './models.js';
+import { createRoom, createTable, createLamp, createCueStick, createBallMesh, createLoungeCorner, createDartboard, createCabinet, createStools, createPainting, createFrame2, createPlant, createCoatRack, TABLE_SURFACE_Y, BALL_Y } from './models.js';
 import { generateTextures } from './textures.js';
 import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, BALL_RADIUS } from './physics.js';
 import { Controls } from './controls.js';
@@ -38,8 +38,8 @@ import { initSounds, startBgMusic, stopBgMusic, setMusicRate, setMusicDifficulty
 const LEVELS_BALL_COUNT = [1, 2, 3, 4];  // colored balls per level (level N = index N-1)
 const NUM_LEVELS        = LEVELS_BALL_COUNT.length; // 4
 
-const LAMP_SWING_AMP   = 0.07;    // swing amplitude in radians (~4°)
-const LAMP_SWING_SPEED = 0.7;     // swing frequency (rad/s) — ~9s full cycle
+const LAMP_SWING_AMP   = 0;       // swing amplitude in radians
+const LAMP_SWING_SPEED = 0.0;    // swing frequency (rad/s)
 
 const CAM_DIST_BEHIND = 4.5;      // distance behind cue ball for player-POV camera
 const CAM_HEIGHT_POV  = 1.6;      // camera height above table for player POV
@@ -209,6 +209,10 @@ function init() {
   createDartboard(scene);
   createCabinet(scene);
   createStools(scene);
+  createPainting(scene);
+  createFrame2(scene);
+  createPlant(scene);
+  createCoatRack(scene);
 
   // ── Cue stick ──
   cue = createCueStick(scene);
