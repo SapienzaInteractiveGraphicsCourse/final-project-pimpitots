@@ -32,7 +32,7 @@ import { createRoom, createTable, createLamp, createCueStick, createBallMesh, cr
 import { generateTextures } from './textures.js';
 import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, BALL_RADIUS } from './physics.js';
 import { Controls } from './controls.js';
-import { initSounds, startBgMusic, stopBgMusic, setMusicRate, setMusicDifficulty, playHitSound, playBallHitSound, playBallWallSound } from './sounds.js';
+import { initSounds, startBgMusic, stopBgMusic, setMusicRate, setMusicDifficulty, playHitSound, playBallHitSound, playBallWallSound, playBallDropSound } from './sounds.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LEVELS_BALL_COUNT = [1, 2, 3, 4];  // colored balls per level (level N = index N-1)
@@ -571,6 +571,7 @@ function animate() {
     }
 
     for (const b of newlyPocketed) {
+      playBallDropSound();
       b.mesh.visible = false;
       if (b.isCueBall) {
         setTimeout(() => _respawnCueBall(), 800);
