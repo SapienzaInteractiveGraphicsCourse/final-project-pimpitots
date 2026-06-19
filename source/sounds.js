@@ -1,8 +1,11 @@
 // ─── Sound Management ─────────────────────────────────────────────────────────
 
-let bgMusic;
+// Resolve the sounds directory relative to THIS module file so paths are
+// correct regardless of whether the page is served via HTTP or opened via
+// file://, and regardless of where index.html sits relative to source/.
+const _soundsBase = new URL('../sounds/', import.meta.url).href;
 
-// Web Audio API context + decoded buffers for sound effects
+let bgMusic;
 let audioCtx;
 let hitBuffer      = null;
 let ballHitBuffer  = null;
@@ -10,36 +13,30 @@ let ballWallBuffer = null;
 let ballDropBuffer = null;
 
 export function initSounds() {
-  bgMusic              = new Audio('../sounds/background.mp3');
+  bgMusic              = new Audio(_soundsBase + 'background.mp3');
   bgMusic.loop         = true;
   bgMusic.volume       = 0.15;
   bgMusic.playbackRate = 1.0;
 
-  audioCtx = new AudioContext();
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-  fetch('../sounds/hitEffect.mp3')
+  // Pre-unlock: resume the AudioContext on the first user gesture so it is
+  // already running by the time any sound effect needs to play.
+  const _unlock = () => { if (audioCtx.state !== 'running') audioCtx.resume(); };
+  document.addEventListener('pointerdown', _unlock, { once: true });
+  document.addEventListener('keydown',     _unlock, { once: true });
+
+  _loadBuffer('hitEffect.mp3').then(b => { hitBuffer      = b; });
+  _loadBuffer('ballHit.mp3'  ).then(b => { ballHitBuffer  = b; });
+  _loadBuffer('ballWall.mp3' ).then(b => { ballWallBuffer = b; });
+  _loadBuffer('ballDrop.mp3' ).then(b => { ballDropBuffer = b; });
+}
+
+function _loadBuffer(filename) {
+  return fetch(_soundsBase + filename)
     .then(r => r.arrayBuffer())
     .then(buf => audioCtx.decodeAudioData(buf))
-    .then(decoded => { hitBuffer = decoded; })
-    .catch(() => {});
-
-  fetch('../sounds/ballHit.mp3')
-    .then(r => r.arrayBuffer())
-    .then(buf => audioCtx.decodeAudioData(buf))
-    .then(decoded => { ballHitBuffer = decoded; })
-    .catch(() => {});
-
-  fetch('../sounds/ballWall.mp3')
-    .then(r => r.arrayBuffer())
-    .then(buf => audioCtx.decodeAudioData(buf))
-    .then(decoded => { ballWallBuffer = decoded; })
-    .catch(() => {});
-
-  fetch('../sounds/ballDrop.mp3')
-    .then(r => r.arrayBuffer())
-    .then(buf => audioCtx.decodeAudioData(buf))
-    .then(decoded => { ballDropBuffer = decoded; })
-    .catch(() => {});
+    .catch(() => null);
 }
 
 export function startBgMusic() {
@@ -66,16 +63,24 @@ export function setMusicDifficulty(diff) {
   setMusicRate(diff === 'insane' ? 1.4 : 1.0);
 }
 
+// audioCtx.resume() is async — we must wait for it to resolve before calling
+// src.start(), otherwise the sound plays into a suspended context and is lost.
 function _playBuffer(buffer, speed) {
   if (!buffer || !audioCtx) return;
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  const gain = audioCtx.createGain();
-  gain.gain.value = Math.min(1.0, Math.max(0.05, speed / 8.0));
-  gain.connect(audioCtx.destination);
-  const src = audioCtx.createBufferSource();
-  src.buffer = buffer;
-  src.connect(gain);
-  src.start();
+  const doPlay = () => {
+    const gain = audioCtx.createGain();
+    gain.gain.value = Math.min(1.0, Math.max(0.05, speed / 8.0));
+    gain.connect(audioCtx.destination);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(gain);
+    src.start();
+  };
+  if (audioCtx.state === 'running') {
+    doPlay();
+  } else {
+    audioCtx.resume().then(doPlay).catch(() => {});
+  }
 }
 
 export function playBallHitSound(speed)  { _playBuffer(ballHitBuffer,  speed); }
@@ -84,12 +89,19 @@ export function playBallDropSound()      { _playBuffer(ballDropBuffer, 8); }
 
 export function playHitSound(power, maxPower) {
   if (!hitBuffer || !audioCtx) return;
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  const gain = audioCtx.createGain();
-  gain.gain.value = Math.max(0.15, power / maxPower);
-  gain.connect(audioCtx.destination);
-  const src = audioCtx.createBufferSource();
-  src.buffer = hitBuffer;
-  src.connect(gain);
-  src.start();
+  const gainVal = Math.max(0.15, power / maxPower);
+  const doPlay = () => {
+    const gain = audioCtx.createGain();
+    gain.gain.value = gainVal;
+    gain.connect(audioCtx.destination);
+    const src = audioCtx.createBufferSource();
+    src.buffer = hitBuffer;
+    src.connect(gain);
+    src.start();
+  };
+  if (audioCtx.state === 'running') {
+    doPlay();
+  } else {
+    audioCtx.resume().then(doPlay).catch(() => {});
+  }
 }
