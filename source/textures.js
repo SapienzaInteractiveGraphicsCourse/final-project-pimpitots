@@ -83,9 +83,22 @@ export function generateTextures() {
     t.repeat.set(3, 1);
   });
 
+  // ── Leg textures — separate load so repeat(1,2) is set before image arrives.
+  // Cloning a not-yet-loaded texture and setting needsUpdate=true immediately
+  // would trigger a Three.js warning every frame ("image is undefined").
+  const legLoader   = new THREE.TextureLoader();
+  const legColorTex = legLoader.load('./textures/wood/color.jpg');
+  const legRoughTex = legLoader.load('./textures/wood/roughness.jpg');
+  legColorTex.wrapS = legColorTex.wrapT = THREE.RepeatWrapping;
+  legColorTex.repeat.set(1, 2);
+  legColorTex.encoding = THREE.sRGBEncoding;
+  legRoughTex.wrapS = legRoughTex.wrapT = THREE.RepeatWrapping;
+  legRoughTex.repeat.set(1, 2);
+
   return {
     felt:         { map: feltColorTex,  normalMap: feltNormalTex,  roughnessMap: feltRoughTex  },
     wood:         { map: woodColorTex,  normalMap: woodNormalTex,  roughnessMap: woodRoughTex },
+    leg:          { map: legColorTex,   normalMap: woodNormalTex,  roughnessMap: legRoughTex  },
     wood020:      { map: wood020ColorTex, normalMap: wood020NormalTex, roughnessMap: wood020RoughTex },
     floor:        { map: floorColorTex, normalMap: floorNormalTex, roughnessMap: floorRoughTex, aoMap: floorAOTex },
     wall:         { map: wallColorTex, normalMap: wallNormTex, roughnessMap: wallRoughTex },

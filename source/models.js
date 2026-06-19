@@ -340,19 +340,10 @@ export function createTable(scene, texMap) {
 
 
   // ── Legs — turned wood profile (LatheGeometry) ───────────────────────
-  // Clone wood texture so we can set a leg-specific UV repeat without
-  // affecting the rail/body material that shares the same texture object.
-  const legDiffTex = texMap.wood.map.clone();
-  legDiffTex.repeat.set(1, 2);
-  legDiffTex.needsUpdate = true;
-  const legRoughTex = texMap.wood.roughnessMap.clone();
-  legRoughTex.repeat.set(1, 2);
-  legRoughTex.needsUpdate = true;
-
   const legMat = new THREE.MeshStandardMaterial({
-    map:          legDiffTex,
-    normalMap:    texMap.wood.normalMap,
-    roughnessMap: legRoughTex,
+    map:          texMap.leg.map,
+    normalMap:    texMap.leg.normalMap,
+    roughnessMap: texMap.leg.roughnessMap,
     roughness:    0.65,
     metalness:         0.05,
   });
