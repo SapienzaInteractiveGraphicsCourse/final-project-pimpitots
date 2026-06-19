@@ -32,6 +32,7 @@ import { createRoom, createTable, createLamp, createCueStick, createBallMesh, cr
 import { generateTextures } from './textures.js';
 import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, BALL_RADIUS } from './physics.js';
 import { Controls } from './controls.js';
+import { initSounds, startBgMusic, stopBgMusic, setMusicRate, setMusicDifficulty, playHitSound, playBallHitSound, playBallWallSound } from './sounds.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LEVELS_BALL_COUNT = [1, 2, 3, 4];  // colored balls per level (level N = index N-1)
@@ -80,7 +81,8 @@ let cue;
 let lampOn    = true;
 let ballEnvMap;
 let balls     = [];                  // [{ id, isCueBall, color, number, x, z, vx, vz, pocketed, mesh }]
-let btnLampEl, btnCamEl;
+let btnLampEl, btnCamEl, btnMusicEl;
+let musicOn = true;
 let powerFillEl, powerBarWrapEl;
 let controls;
 
@@ -153,6 +155,9 @@ function init() {
     _framePainted   = true;
     _dismissLoader();
   }, 15000);
+
+  // ── Sounds ──
+  initSounds();
 
   // ── Renderer ──
   const canvas = document.getElementById('glCanvas');
@@ -289,11 +294,13 @@ function _onResize() {
 
 // ─── Keyboard ─────────────────────────────────────────────────────────────────
 function _onKeyDown(e) {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   const k = e.key.toUpperCase();
   if (k === 'L') _toggleLamp();
   if (k === 'C' || k === 'V') _switchCamera();
   if (k === 'R') _resetGame();
   if (k === 'N') _newConfiguration();
+  if (k === 'M') _toggleMusic();
 }
 
 // ─── Level Management ─────────────────────────────────────────────────────────
@@ -456,6 +463,7 @@ function _updateCue(dt) {
         hitBall.vx = -Math.cos(strikePendingPhi) * strikePendingPower;
         hitBall.vz =  Math.sin(strikePendingPhi) * strikePendingPower;
       }
+      playHitSound(strikePendingPower, 14.0);
       strikeHitApplied = true;
     }
 
@@ -482,6 +490,12 @@ function _updateBallRotation(ball, dt) {
 // ─── Lamp ─────────────────────────────────────────────────────────────────────
 function _updateLamp(elapsedTime) {
   lamp.anchor.rotation.x = Math.sin(elapsedTime * LAMP_SWING_SPEED) * LAMP_SWING_AMP;
+}
+
+function _toggleMusic() {
+  musicOn = !musicOn;
+  if (musicOn) startBgMusic(); else stopBgMusic();
+  _updateHUD();
 }
 
 function _toggleLamp() {
@@ -553,7 +567,7 @@ function animate() {
 
     let newlyPocketed = [];
     for (let s = 0; s < SUB_STEPS; s++) {
-      newlyPocketed = newlyPocketed.concat(stepPhysics(balls, subDt));
+      newlyPocketed = newlyPocketed.concat(stepPhysics(balls, subDt, playBallHitSound, playBallWallSound));
     }
 
     for (const b of newlyPocketed) {
@@ -787,6 +801,7 @@ function _buildHUD() {
   hudLivesEl     = document.getElementById('hud-lives');
   btnCamEl       = document.getElementById('btn-cam');
   btnLampEl      = document.getElementById('btn-lamp');
+  btnMusicEl     = document.getElementById('btn-music');
   powerFillEl    = document.getElementById('power-fill');
   powerBarWrapEl = document.getElementById('power-bar-wrap');
   overlayEl      = document.getElementById('overlay');
@@ -797,13 +812,15 @@ function _bindUIButtons() {
   document.getElementById('btn-reset').addEventListener('click', _resetGame);
   document.getElementById('btn-cam').addEventListener('click', _switchCamera);
   document.getElementById('btn-lamp').addEventListener('click', _toggleLamp);
+  document.getElementById('btn-music').addEventListener('click', _toggleMusic);
 }
 
 function _updateHUD() {
   if (hudLevelEl) hudLevelEl.textContent = `Level ${currentLevel + 1} / ${NUM_LEVELS}`;
   if (hudBallsEl) hudBallsEl.textContent = `Balls remaining: ${ballsRemaining}`;
   if (btnCamEl)   btnCamEl.textContent   = currentCameraIndex === 0 ? '\u{1F441} Player POV' : '\u{1F4F7} Overview';
-  if (btnLampEl)  btnLampEl.textContent  = lampOn ? '\u{1F311} Lamp OFF' : '\u{1F315} Lamp ON';
+  if (btnLampEl)  btnLampEl.textContent  = lampOn   ? '\u{1F311} Lamp OFF'  : '\u{1F315} Lamp ON';
+  if (btnMusicEl) btnMusicEl.textContent = musicOn  ? '\u{1F3B5} Music OFF' : '\u{1F3B5} Music ON';
   if (hudLivesEl && difficultyChosen) {
     var hearts = '';
     for (var i = 0; i < maxLives; i++) {
@@ -832,6 +849,7 @@ function _updatePowerBar() {
 function _showDifficultyMenu() {
   difficultyChosen = false;
   controls.enabled = false;
+  if (musicOn) startBgMusic();
 
   const DIFFS = [
     { diff: 'normal', label: 'NORMAL', lives: 5 },
@@ -964,6 +982,7 @@ function _showDifficultyMenu() {
     const v = parseFloat(slider.value);
     updateFace(v);
     updateLabel(v);
+    setMusicRate(v <= 1 ? 1.0 : 1.0 + (v - 1) * 0.4);
   });
 
   function snapSlider() {
@@ -987,6 +1006,7 @@ function _selectDifficulty(diff, lives) {
   playerLives      = lives;
   difficultyChosen = true;
   gameOver         = false;
+  setMusicDifficulty(diff);
   overlayEl.style.display = 'none';
   _startLevel(0);
 }
@@ -1004,6 +1024,7 @@ function _showGameOver() {
   gameState        = STATE.WAITING;
   controls.enabled = false;
   cue.root.visible = false;
+  stopBgMusic();
 
   overlayEl.style.display = 'flex';
   overlayEl.innerHTML =

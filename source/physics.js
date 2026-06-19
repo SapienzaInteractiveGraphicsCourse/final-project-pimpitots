@@ -133,25 +133,36 @@ function _nearPocketOpening(ball) {
  * Skips cushion check near pocket openings so balls can fall in naturally.
  * @param {{ x: number, z: number, vx: number, vz: number }} ball
  */
-function _resolveCushion(ball) {
+function _resolveCushion(ball, onCollision) {
   if (_nearPocketOpening(ball)) return;
+
+  let hit = false;
 
   // ── X-axis cushions ──
   if (ball.x < CUSHION_MIN_X) {
     ball.x  = CUSHION_MIN_X;
     ball.vx = Math.abs(ball.vx) * RESTITUTION_CU;
+    hit = true;
   } else if (ball.x > CUSHION_MAX_X) {
     ball.x  = CUSHION_MAX_X;
     ball.vx = -Math.abs(ball.vx) * RESTITUTION_CU;
+    hit = true;
   }
 
   // ── Z-axis cushions ──
   if (ball.z < CUSHION_MIN_Z) {
     ball.z  = CUSHION_MIN_Z;
     ball.vz = Math.abs(ball.vz) * RESTITUTION_CU;
+    hit = true;
   } else if (ball.z > CUSHION_MAX_Z) {
     ball.z  = CUSHION_MAX_Z;
     ball.vz = -Math.abs(ball.vz) * RESTITUTION_CU;
+    hit = true;
+  }
+
+  if (hit && onCollision) {
+    const speed = Math.sqrt(ball.vx * ball.vx + ball.vz * ball.vz);
+    onCollision(speed);
   }
 }
 
@@ -163,7 +174,7 @@ function _resolveCushion(ball) {
  * @param {{ x,z,vx,vz }} a
  * @param {{ x,z,vx,vz }} b
  */
-function _resolveBallBall(a, b) {
+function _resolveBallBall(a, b, onCollision) {
   const dx   = b.x - a.x;
   const dz   = b.z - a.z;
   const dist2 = dx * dx + dz * dz;
@@ -200,6 +211,8 @@ function _resolveBallBall(a, b) {
   a.vz -= j * nz;
   b.vx += j * nx;
   b.vz += j * nz;
+
+  if (onCollision) onCollision(vRel_n);
 }
 
 // ─── Main Physics Step ────────────────────────────────────────────────────────
@@ -212,7 +225,7 @@ function _resolveBallBall(a, b) {
  * @param {number} dt - delta time in seconds
  * @returns {Array} subset of balls that were newly pocketed this step
  */
-export function stepPhysics(balls, dt) {
+export function stepPhysics(balls, dt, onBallBall, onCushion) {
   // Frame-rate–independent friction factor
   // FRICTION_60FPS^(dt*60) gives consistent feel regardless of frame rate.
   const frictionFactor = Math.pow(FRICTION_60FPS, dt * 60);
@@ -240,14 +253,14 @@ export function stepPhysics(balls, dt) {
     if (balls[i].pocketed) continue;
     for (let j = i + 1; j < balls.length; j++) {
       if (!balls[j].pocketed) {
-        _resolveBallBall(balls[i], balls[j]);
+        _resolveBallBall(balls[i], balls[j], onBallBall);
       }
     }
   }
 
   // ── 3. Cushion collisions ──
   for (const ball of balls) {
-    if (!ball.pocketed) _resolveCushion(ball);
+    if (!ball.pocketed) _resolveCushion(ball, onCushion);
   }
 
   // ── 4. Pocket detection ──
