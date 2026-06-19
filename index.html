@@ -461,6 +461,23 @@
     }
     .hud-shake { animation: hudShake 0.42s ease-out; }
 
+    @keyframes screenTremble {
+      0%   { transform: translate(  0px,  0px); }
+      8%   { transform: translate( -7px,  4px); }
+      16%  { transform: translate(  8px, -5px) rotate( 0.5deg); }
+      24%  { transform: translate( -6px,  7px); }
+      32%  { transform: translate(  7px, -5px) rotate(-0.4deg); }
+      41%  { transform: translate( -5px,  5px); }
+      50%  { transform: translate(  5px, -3px); }
+      59%  { transform: translate( -3px,  4px); }
+      68%  { transform: translate(  3px, -2px); }
+      77%  { transform: translate( -2px,  2px); }
+      88%  { transform: translate(  1px, -1px); }
+      100% { transform: translate(  0px,  0px); }
+    }
+    .screen-tremble { animation: screenTremble 0.6s linear; }
+    body.difficulty-insane.screen-tremble { animation-duration: 0.85s; }
+
     #life-lost-flash {
       position: fixed;
       inset: 0;
@@ -490,8 +507,85 @@
       z-index: 60;
       font-size: 15px;
       line-height: 1;
-      animation: heartFragment 0.65s ease-out forwards;
+      animation: heartFragment 1.0s ease-out forwards;
     }
+
+    /* Heart flies from HUD to screen-center then explodes */
+    .heart-flying {
+      position: fixed;
+      pointer-events: none;
+      z-index: 70;
+      line-height: 1;
+    }
+    @keyframes heartFlyAndExplode {
+      0%   { transform: translate(-50%,-50%) scale(1);                                                                           opacity: 1; filter: none;            animation-timing-function: cubic-bezier(0.5,0,0.65,0.4); }
+      50%  { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(2.0); opacity: 1; filter: none;            animation-timing-function: ease-out; }
+      65%  { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1.5); opacity: 1; filter: brightness(2.2); animation-timing-function: cubic-bezier(0,0,0.2,1); }
+      83%  { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(4.5); opacity: 0.8; filter: brightness(4.5); animation-timing-function: ease-in; }
+      100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0);   opacity: 0; filter: brightness(1); }
+    }
+
+    /* ── Insane-difficulty UI overrides ── */
+    @keyframes heartPulse {
+      0%, 100% { transform: scale(1);    filter: drop-shadow(0 0  6px rgba(185, 80, 255, 0.60)); }
+      50%       { transform: scale(1.16); filter: drop-shadow(0 0 16px rgba(200,100, 255, 0.95)); }
+    }
+
+    body.difficulty-insane #hud {
+      border-color: rgba(190, 100, 255, 0.45);
+      box-shadow: 0 0 22px rgba(190, 100, 255, 0.25), 0 4px 16px rgba(0,0,0,0.5);
+    }
+    body.difficulty-insane #hud-level {
+      color: #c77dff;
+      text-shadow: 0 0 14px rgba(200, 100, 255, 0.80), 0 0 30px rgba(200, 100, 255, 0.30);
+    }
+    body.difficulty-insane #hud-balls { color: #c4a0ff; }
+
+    body.difficulty-insane #hud-lives {
+      text-align: center;
+      margin-top: 8px;
+    }
+    body.difficulty-insane .heart {
+      font-size: 42px;
+      animation: heartPulse 1.1s ease-in-out infinite;
+    }
+    body.difficulty-insane .heart.heart-lose {
+      animation: heartLose 1.2s cubic-bezier(0.55, 0, 1, 0.45) forwards;
+    }
+
+    body.difficulty-insane #power-bar-wrap {
+      border-color: rgba(190, 100, 255, 0.42);
+      box-shadow: 0 0 14px rgba(190, 100, 255, 0.14);
+    }
+
+    body.difficulty-insane #button-bar button {
+      border-color: rgba(190, 100, 255, 0.35);
+      background: rgba(18, 0, 36, 0.72);
+    }
+    body.difficulty-insane #button-bar button:hover {
+      background: rgba(190, 100, 255, 0.22);
+      border-color: rgba(190, 100, 255, 0.88);
+      box-shadow: 0 0 18px rgba(190, 100, 255, 0.58);
+      transform: scale(1.06);
+    }
+
+    body.difficulty-insane #legend {
+      border-color: rgba(190, 100, 255, 0.38);
+    }
+    body.difficulty-insane #legend kbd {
+      background: rgba(190, 100, 255, 0.16);
+      border-color: rgba(190, 100, 255, 0.44);
+      color: #ddb0ff;
+    }
+
+    body.difficulty-insane #life-lost-flash {
+      background: radial-gradient(ellipse at center,
+        rgba(150, 25, 255, 0.00)  0%,
+        rgba(150, 25, 255, 0.00) 38%,
+        rgba(150, 25, 255, 0.32) 70%,
+        rgba( 90,  0, 200, 0.52) 100%);
+    }
+    body.difficulty-insane #life-lost-flash.flash { animation-duration: 0.85s; }
 
     /* ── Initial loading overlay ──
        Dismissed exclusively by main.js, once THREE.DefaultLoadingManager

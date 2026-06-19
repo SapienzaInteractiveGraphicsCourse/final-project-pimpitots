@@ -32,7 +32,7 @@ import { createRoom, createTable, createLamp, createCueStick, createBallMesh, cr
 import { generateTextures } from './textures.js';
 import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, BALL_RADIUS } from './physics.js';
 import { Controls } from './controls.js';
-import { initSounds, startBgMusic, stopBgMusic, setMusicRate, setMusicDifficulty, playHitSound, playBallHitSound, playBallWallSound, playBallDropSound, playSuccessSound, playFailSound, playWinSound } from './sounds.js';
+import { initSounds, startBgMusic, stopBgMusic, setMusicRate, setMusicDifficulty, playHitSound, playBallHitSound, playBallWallSound, playBallDropSound, playErrorSound, playSuccessSound, playFailSound, playWinSound } from './sounds.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LEVELS_BALL_COUNT = [1, 2, 3, 4];  // colored balls per level (level N = index N-1)
@@ -915,7 +915,7 @@ function _updateHUD() {
     for (let i = 0; i < maxLives; i++) {
       const span = document.createElement('span');
       span.className = 'heart';
-      span.textContent = i < playerLives ? '❤️' : '🖤';
+      span.textContent = i < playerLives ? (difficulty === 'insane' ? '💜' : '❤️') : '🖤';
       hudLivesEl.appendChild(span);
     }
   }
@@ -938,6 +938,7 @@ function _updatePowerBar() {
 // ─── Difficulty Menu ──────────────────────────────────────────────────────────
 
 function _showDifficultyMenu() {
+  document.body.classList.remove('difficulty-insane');
   difficultyChosen = false;
   controls.enabled = false;
   if (musicOn) startBgMusic();
@@ -1098,6 +1099,7 @@ function _selectDifficulty(diff, lives) {
   difficultyChosen = true;
   gameOver         = false;
   setMusicDifficulty(diff);
+  document.body.classList.toggle('difficulty-insane', diff === 'insane');
   overlayEl.style.display = 'none';
   _startLevel(0);
 }
@@ -1105,30 +1107,82 @@ function _selectDifficulty(diff, lives) {
 // ─── Life System ─────────────────────────────────────────────────────────────
 
 function _loseLife() {
-  const heartSpans = hudLivesEl ? hudLivesEl.querySelectorAll('.heart') : [];
+  playErrorSound();
+  const heartSpans  = hudLivesEl ? hudLivesEl.querySelectorAll('.heart') : [];
   const losingHeart = heartSpans[playerLives - 1];
-  if (playerLives - 1 <= 0) playFailSound();
+
   if (losingHeart) {
-    losingHeart.classList.add('heart-lose');
+    const isInsane = difficulty === 'insane';
 
-    _lifeFlashEl.classList.remove('flash');
-    void _lifeFlashEl.offsetWidth;
-    _lifeFlashEl.classList.add('flash');
+    if (isInsane) {
+      // Insane: purple heart flies to screen centre and explodes
+      const rect   = losingHeart.getBoundingClientRect();
+      const startX = rect.left + rect.width  / 2;
+      const startY = rect.top  + rect.height / 2;
+      const endX   = window.innerWidth  / 2;
+      const endY   = window.innerHeight / 2;
 
-    const hudEl = document.getElementById('hud');
-    hudEl.classList.remove('hud-shake');
-    void hudEl.offsetWidth;
-    hudEl.classList.add('hud-shake');
-    hudEl.addEventListener('animationend', () => hudEl.classList.remove('hud-shake'), { once: true });
+      losingHeart.style.visibility = 'hidden';
 
-    const rect = losingHeart.getBoundingClientRect();
-    _spawnHeartFragments(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      const flyHeart = document.createElement('span');
+      flyHeart.className   = 'heart-flying';
+      flyHeart.textContent = '💜';
+      flyHeart.style.left      = startX + 'px';
+      flyHeart.style.top       = startY + 'px';
+      flyHeart.style.fontSize  = window.getComputedStyle(losingHeart).fontSize;
+      flyHeart.style.animation = 'heartFlyAndExplode 1700ms linear forwards';
+      flyHeart.style.setProperty('--tx', (endX - startX).toFixed(1) + 'px');
+      flyHeart.style.setProperty('--ty', (endY - startY).toFixed(1) + 'px');
+      document.body.appendChild(flyHeart);
 
-    setTimeout(() => {
-      playerLives = Math.max(0, playerLives - 1);
-      _updateHUD();
-      if (playerLives <= 0) _showGameOver();
-    }, 600);
+      setTimeout(() => {
+        _lifeFlashEl.classList.remove('flash');
+        void _lifeFlashEl.offsetWidth;
+        _lifeFlashEl.classList.add('flash');
+
+        const hudEl = document.getElementById('hud');
+        hudEl.classList.remove('hud-shake');
+        void hudEl.offsetWidth;
+        hudEl.classList.add('hud-shake');
+        hudEl.addEventListener('animationend', () => hudEl.classList.remove('hud-shake'), { once: true });
+
+        _spawnHeartFragments(endX, endY);
+
+        document.body.classList.add('screen-tremble');
+        setTimeout(() => document.body.classList.remove('screen-tremble'), 1000);
+      }, 850);
+
+      setTimeout(() => {
+        if (flyHeart.parentNode) flyHeart.parentNode.removeChild(flyHeart);
+        playerLives = Math.max(0, playerLives - 1);
+        _updateHUD();
+        if (playerLives <= 0) _showGameOver();
+      }, 1820);
+
+    } else {
+      // Normal / hard: heart breaks in place
+      losingHeart.classList.add('heart-lose');
+
+      _lifeFlashEl.classList.remove('flash');
+      void _lifeFlashEl.offsetWidth;
+      _lifeFlashEl.classList.add('flash');
+
+      const hudEl = document.getElementById('hud');
+      hudEl.classList.remove('hud-shake');
+      void hudEl.offsetWidth;
+      hudEl.classList.add('hud-shake');
+      hudEl.addEventListener('animationend', () => hudEl.classList.remove('hud-shake'), { once: true });
+
+      const rect = losingHeart.getBoundingClientRect();
+      _spawnHeartFragments(rect.left + rect.width / 2, rect.top + rect.height / 2);
+
+      setTimeout(() => {
+        playerLives = Math.max(0, playerLives - 1);
+        _updateHUD();
+        if (playerLives <= 0) _showGameOver();
+      }, 600);
+    }
+
   } else {
     playerLives = Math.max(0, playerLives - 1);
     _updateHUD();
@@ -1137,20 +1191,24 @@ function _loseLife() {
 }
 
 function _spawnHeartFragments(cx, cy) {
-  const emojis = ['💔', '💔', '✨', '💔', '✨', '💔', '💔'];
+  const isInsane = difficulty === 'insane';
+  const emojis = isInsane
+    ? ['💜', '💜', '✨', '💜', '✨', '💜', '💜', '💜', '✨', '💜']
+    : ['💔', '💔', '✨', '💔', '✨', '💔', '💔'];
   for (let i = 0; i < emojis.length; i++) {
-    const angle = (i / emojis.length) * Math.PI * 2 - Math.PI / 2;
-    const dist  = 38 + Math.random() * 44;
+    const angle = (i / emojis.length) * Math.PI * 2 - Math.PI / 2 + (isInsane ? (Math.random() - 0.5) * 0.4 : 0);
+    const dist  = isInsane ? 90 + Math.random() * 110 : 38 + Math.random() * 44;
     const frag  = document.createElement('span');
-    frag.className = 'heart-fragment';
-    frag.textContent = emojis[i];
-    frag.style.left = cx + 'px';
-    frag.style.top  = cy + 'px';
+    frag.className    = 'heart-fragment';
+    frag.textContent  = emojis[i];
+    frag.style.left   = cx + 'px';
+    frag.style.top    = cy + 'px';
+    if (isInsane) frag.style.fontSize = '20px';
     frag.style.setProperty('--fx', (Math.cos(angle) * dist).toFixed(1) + 'px');
     frag.style.setProperty('--fy', (Math.sin(angle) * dist).toFixed(1) + 'px');
-    frag.style.animationDelay = (Math.random() * 0.07).toFixed(3) + 's';
+    frag.style.animationDelay = (Math.random() * 0.08).toFixed(3) + 's';
     document.body.appendChild(frag);
-    setTimeout(() => { if (frag.parentNode) frag.parentNode.removeChild(frag); }, 850);
+    setTimeout(() => { if (frag.parentNode) frag.parentNode.removeChild(frag); }, isInsane ? 1400 : 850);
   }
 }
 
