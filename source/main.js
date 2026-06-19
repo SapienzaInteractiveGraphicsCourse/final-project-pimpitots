@@ -32,7 +32,7 @@ import { createRoom, createTable, createLamp, createCueStick, createBallMesh, cr
 import { generateTextures } from './textures.js';
 import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, BALL_RADIUS } from './physics.js';
 import { Controls } from './controls.js';
-import { initSounds, startBgMusic, stopBgMusic, setMusicRate, setMusicDifficulty, playHitSound, playBallHitSound, playBallWallSound, playBallDropSound } from './sounds.js';
+import { initSounds, startBgMusic, stopBgMusic, setMusicRate, setMusicDifficulty, playHitSound, playBallHitSound, playBallWallSound, playBallDropSound, playSuccessSound, playFailSound, playWinSound } from './sounds.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LEVELS_BALL_COUNT = [1, 2, 3, 4];  // colored balls per level (level N = index N-1)
@@ -122,7 +122,7 @@ let difficultyChosen         = false;
 let _pocketedColoredThisShot = false;
 
 // ─── HUD element refs (cached in _buildHUD) ───────────────────────────────────
-let hudLevelEl, hudBallsEl, hudLivesEl, overlayEl;
+let hudLevelEl, hudBallsEl, hudLivesEl, overlayEl, _lifeFlashEl;
 
 // ─── Loading-overlay lifecycle state ─────────────────────────────────────────
 // See _maybeDismissLoader() / _dismissLoader() below for how these gate the
@@ -647,6 +647,7 @@ function _onLevelComplete() {
 }
 
 function _showLevelComplete(nextLevelIndex) {
+  playSuccessSound();
   const quips = [
     "Warm-up's over. Things get serious. 😐",
     "Pool shark spotted in the wild! 🦈",
@@ -672,6 +673,7 @@ function _showLevelComplete(nextLevelIndex) {
 }
 
 function _showWinScreen() {
+  playWinSound();
   const confettiColors = [
     '#f5d76e','#6effa0','#ff6b6b','#74b9ff',
     '#a29bfe','#fd79a8','#ffeaa7','#00cec9',
@@ -813,6 +815,10 @@ function _buildHUD() {
   powerFillEl    = document.getElementById('power-fill');
   powerBarWrapEl = document.getElementById('power-bar-wrap');
   overlayEl      = document.getElementById('overlay');
+
+  _lifeFlashEl = document.createElement('div');
+  _lifeFlashEl.id = 'life-lost-flash';
+  document.body.appendChild(_lifeFlashEl);
 }
 
 function _bindUIButtons() {
@@ -830,11 +836,13 @@ function _updateHUD() {
   if (btnLampEl)  btnLampEl.textContent  = lampOn   ? '\u{1F311} Lamp OFF'  : '\u{1F315} Lamp ON';
   if (btnMusicEl) btnMusicEl.textContent = musicOn  ? '\u{1F3B5} Music OFF' : '\u{1F3B5} Music ON';
   if (hudLivesEl && difficultyChosen) {
-    var hearts = '';
-    for (var i = 0; i < maxLives; i++) {
-      hearts += (i < playerLives) ? '❤️ ' : '🖤 ';
+    hudLivesEl.innerHTML = '';
+    for (let i = 0; i < maxLives; i++) {
+      const span = document.createElement('span');
+      span.className = 'heart';
+      span.textContent = i < playerLives ? '❤️' : '🖤';
+      hudLivesEl.appendChild(span);
     }
-    hudLivesEl.textContent = hearts.trim();
   }
 }
 
@@ -1022,12 +1030,57 @@ function _selectDifficulty(diff, lives) {
 // ─── Life System ─────────────────────────────────────────────────────────────
 
 function _loseLife() {
-  playerLives--;
-  _updateHUD();
-  if (playerLives <= 0) _showGameOver();
+  const heartSpans = hudLivesEl ? hudLivesEl.querySelectorAll('.heart') : [];
+  const losingHeart = heartSpans[playerLives - 1];
+  if (playerLives - 1 <= 0) playFailSound();
+  if (losingHeart) {
+    losingHeart.classList.add('heart-lose');
+
+    _lifeFlashEl.classList.remove('flash');
+    void _lifeFlashEl.offsetWidth;
+    _lifeFlashEl.classList.add('flash');
+
+    const hudEl = document.getElementById('hud');
+    hudEl.classList.remove('hud-shake');
+    void hudEl.offsetWidth;
+    hudEl.classList.add('hud-shake');
+    hudEl.addEventListener('animationend', () => hudEl.classList.remove('hud-shake'), { once: true });
+
+    const rect = losingHeart.getBoundingClientRect();
+    _spawnHeartFragments(rect.left + rect.width / 2, rect.top + rect.height / 2);
+
+    setTimeout(() => {
+      playerLives = Math.max(0, playerLives - 1);
+      _updateHUD();
+      if (playerLives <= 0) _showGameOver();
+    }, 600);
+  } else {
+    playerLives = Math.max(0, playerLives - 1);
+    _updateHUD();
+    if (playerLives <= 0) _showGameOver();
+  }
+}
+
+function _spawnHeartFragments(cx, cy) {
+  const emojis = ['💔', '💔', '✨', '💔', '✨', '💔', '💔'];
+  for (let i = 0; i < emojis.length; i++) {
+    const angle = (i / emojis.length) * Math.PI * 2 - Math.PI / 2;
+    const dist  = 38 + Math.random() * 44;
+    const frag  = document.createElement('span');
+    frag.className = 'heart-fragment';
+    frag.textContent = emojis[i];
+    frag.style.left = cx + 'px';
+    frag.style.top  = cy + 'px';
+    frag.style.setProperty('--fx', (Math.cos(angle) * dist).toFixed(1) + 'px');
+    frag.style.setProperty('--fy', (Math.sin(angle) * dist).toFixed(1) + 'px');
+    frag.style.animationDelay = (Math.random() * 0.07).toFixed(3) + 's';
+    document.body.appendChild(frag);
+    setTimeout(() => { if (frag.parentNode) frag.parentNode.removeChild(frag); }, 850);
+  }
 }
 
 function _showGameOver() {
+  playFailSound();
   gameOver         = true;
   gameState        = STATE.WAITING;
   controls.enabled = false;
