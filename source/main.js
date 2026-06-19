@@ -28,7 +28,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
-import { createRoom, createTable, createLamp, createCueStick, createBallMesh, createLoungeCorner, createDartboard, createCabinet, createStools, createPainting, createFrame2, createPlant, createPlant2, createCoatRack, createPainting3, createPlant2Corner, TABLE_SURFACE_Y, BALL_Y } from './models.js';
+import { createRoom, createTable, createLamp, createCueStick, createBallMesh, createLoungeCorner, createDartboard, createCabinet, createStools, createPainting, createFrame2, createPlant, createPlant2, createCoatRack, createPainting3, createPlant2Corner, CUE_REACH, CUE_CLEAR_R, TABLE_SURFACE_Y, BALL_Y } from './models.js';
 import { generateTextures } from './textures.js';
 import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, BALL_RADIUS } from './physics.js';
 import { Controls } from './controls.js';
@@ -46,6 +46,10 @@ const CAM_HEIGHT_POV  = 1.6;      // camera height above table for player POV
 
 const STRIKE_FORWARD_TIME = 0.08; // seconds for the cue to snap forward into the ball
 const STRIKE_SHOW_TIME    = 0.25; // seconds the cue stays visible after the strike begins
+
+// Aim easing rate (1/s) toward the collision-free target. Higher = snappier
+// normal aiming; lower = smoother glide when skipping past a ball.
+const AIM_SMOOTH_RATE = 40;
 
 const DT_CAP = 0.05; // clamp on per-frame delta time
 
@@ -106,6 +110,9 @@ let strikeOriginZ       = 0;
 let strikePendingPhi    = 0;    // cue aim angle captured at shot-fire
 let strikePendingPower  = 0;    // shot power captured at shot-fire
 let strikeHitApplied    = false; // true once cue-ball velocity has been applied this strike
+
+// ─── Aim Collision State ──────────────────────────────────────────────────────
+let _resolvedAim = 0;  // last frame's collision-filtered aim angle actually shown (eased)
 
 // ─── Level State ──────────────────────────────────────────────────────────────
 let currentLevel            = 0;     // 0-based index into LEVELS_BALL_COUNT
@@ -176,8 +183,10 @@ function init() {
 
   // ── Scene ──
   scene = new THREE.Scene();
+  // Instant procedural sky as placeholder; the HDR replaces it once decoded.
   scene.background = _buildNightSkyBackground();
   scene.fog = new THREE.Fog(0x080d20, 10, 35);
+
 
   // ── Cameras ──
   const aspect = window.innerWidth / window.innerHeight;
@@ -422,6 +431,61 @@ function _fireShot(power) {
 }
 
 // ─── Cue Update ───────────────────────────────────────────────────────────────
+// Wrap an angle to (−π, π].
+function _wrapPi(a) {
+  while (a >   Math.PI) a -= 2 * Math.PI;
+  while (a <= -Math.PI) a += 2 * Math.PI;
+  return a;
+}
+
+/**
+ * Resolves the player's raw aim angle into one where the cue stick clears every
+ * other ball. The stick points from the cue ball in world direction
+ * (cos φ, −sin φ); a ball lying that way within CUE_REACH blocks a cone of
+ * angles ±asin((BALL_RADIUS + CUE_CLEAR_R)/L) around its bearing.
+ *
+ * If the raw aim lands inside a cone, it snaps to the *nearer* edge: the cue
+ * rides up to a ball and waits at its tangent (never penetrating), and only
+ * once the raw aim sweeps past the ball's centre bearing does the target flip
+ * to the far edge. The caller eases toward this target, so that flip reads as a
+ * quick glide past the ball rather than a teleport. The returned angle is
+ * always collision-free, so a resting aim can never sit inside a ball.
+ *
+ * @param {number} desired  raw aim angle this frame
+ * @param {Object} cueBall  the active cue ball ({x, z})
+ * @returns {number} a collision-free aim angle
+ */
+function _resolveAimAngle(desired, cueBall) {
+  const cones = [];
+  for (const b of balls) {
+    if (b.pocketed || b.isCueBall) continue;
+    const rx = b.x - cueBall.x;
+    const rz = b.z - cueBall.z;
+    const L  = Math.hypot(rx, rz);
+    if (L < 1e-3 || L > CUE_REACH) continue;
+    const s = (BALL_RADIUS + CUE_CLEAR_R) / L;
+    if (s >= 1) continue; // ball effectively overlaps the cue ball — no valid cone
+    cones.push({ center: Math.atan2(-rz, rx), delta: Math.asin(s) });
+  }
+  if (cones.length === 0) return desired;
+
+  // Snap out of any cone to its nearer edge. Re-check after each push since the
+  // new edge may land inside an adjacent cone.
+  let result = desired;
+  for (let iter = 0; iter <= cones.length; iter++) {
+    let blocked = false;
+    for (const c of cones) {
+      const d = _wrapPi(result - c.center);
+      if (Math.abs(d) < c.delta) {
+        result  = c.center + (d >= 0 ? c.delta : -c.delta);
+        blocked = true;
+      }
+    }
+    if (!blocked) break;
+  }
+  return result;
+}
+
 function _updateCue(dt) {
   const cueBall = balls.find(b => b.isCueBall && !b.pocketed);
   if (gameState === STATE.ROLLING || !cueBall) {
@@ -450,7 +514,18 @@ function _updateCue(dt) {
       }
     }
 
-    cue.root.rotation.y  = controls.aimAngle;
+    // Keep the stick from piercing another ball: if the raw aim would push the
+    // stick into a ball, snap to the next clear orientation in the drag
+    // direction. Drag direction comes from the frame-to-frame change in the raw
+    // aim, so a cursor resting behind a ball holds steady instead of jittering.
+    const targetAim = _resolveAimAngle(controls.aimAngle, cueBall);
+
+    // Ease toward the collision-free target along the shortest arc so that
+    // gliding past a ball happens over a few frames instead of teleporting.
+    const tt = 1 - Math.exp(-AIM_SMOOTH_RATE * dt);
+    _resolvedAim = _wrapPi(_resolvedAim + _wrapPi(targetAim - _resolvedAim) * tt);
+
+    cue.root.rotation.y  = _resolvedAim;
     cue.group.position.x = controls.pullback;
 
   } else if (gameState === STATE.STRIKING) {

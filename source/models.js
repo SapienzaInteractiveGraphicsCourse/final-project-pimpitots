@@ -483,6 +483,14 @@ const CUE_SHAFT_L = 2.8;    // shaft section length
 const CUE_GRIP_R  = 0.040;  // grip radius (wider end)
 const CUE_GRIP_L  = 1.4;    // grip section length
 
+// How far the stick body extends from the cue-ball centre along +X (tip base
+// sits at BALL_RADIUS, grip end at the far tip). Consumed by main.js to decide
+// which other balls lie under the stick when aiming.
+export const CUE_REACH   = BALL_RADIUS + CUE_TIP_L + CUE_SHAFT_L + CUE_GRIP_L;
+// Effective cue half-thickness (widest section + a small visual margin) used
+// when testing whether the stick would pierce another ball during aiming.
+export const CUE_CLEAR_R = CUE_GRIP_R + 0.02;
+
 /**
  * Creates the cue stick as a parent-child hierarchy and adds it to the scene.
  *
