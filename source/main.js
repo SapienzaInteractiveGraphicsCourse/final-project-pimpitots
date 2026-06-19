@@ -48,8 +48,8 @@ const STRIKE_FORWARD_TIME = 0.08; // seconds for the cue to snap forward into th
 const STRIKE_SHOW_TIME    = 0.25; // seconds the cue stays visible after the strike begins
 
 // Aim easing rate (1/s) toward the collision-free target. Higher = snappier
-// normal aiming; lower = smoother glide when skipping past a ball.
-const AIM_SMOOTH_RATE = 40;
+// normal aiming; lower = smoother glide when gliding past a ball.
+const AIM_SMOOTH_RATE = 30;
 
 const DT_CAP = 0.05; // clamp on per-frame delta time
 
@@ -514,14 +514,10 @@ function _updateCue(dt) {
       }
     }
 
-    // Keep the stick from piercing another ball: if the raw aim would push the
-    // stick into a ball, snap to the next clear orientation in the drag
-    // direction. Drag direction comes from the frame-to-frame change in the raw
-    // aim, so a cursor resting behind a ball holds steady instead of jittering.
+    // Keep the stick from piercing another ball: snap the aim out of any ball's
+    // blocked cone (to its nearer edge), then ease toward that collision-free
+    // target so gliding past a ball happens over a few frames, not a teleport.
     const targetAim = _resolveAimAngle(controls.aimAngle, cueBall);
-
-    // Ease toward the collision-free target along the shortest arc so that
-    // gliding past a ball happens over a few frames instead of teleporting.
     const tt = 1 - Math.exp(-AIM_SMOOTH_RATE * dt);
     _resolvedAim = _wrapPi(_resolvedAim + _wrapPi(targetAim - _resolvedAim) * tt);
 
