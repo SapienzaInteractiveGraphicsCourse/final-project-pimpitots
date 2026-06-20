@@ -56,7 +56,7 @@ const DT_CAP = 0.05; // clamp on per-frame delta time
 const SUBSTEP_SAFE_SPEED    = BALL_RADIUS / (2 * DT_CAP);
 const SUBSTEP_SAFE_SPEED_SQ = SUBSTEP_SAFE_SPEED * SUBSTEP_SAFE_SPEED;
 
-// --- Ball Colors (index 0 = cue ball, 1-15 = standard pool palette) ---
+// --- Ball Colors (index 0 = cue ball, 1-8 = solid pool palette) ---
 const BALL_COLORS = [
   '#F5F5F5',  // 0  cue ball (white)
   '#F5C518',  // 1  yellow
@@ -67,13 +67,6 @@ const BALL_COLORS = [
   '#2E7D32',  // 6  green
   '#6D1B1B',  // 7  maroon
   '#212121',  // 8  black (8-ball)
-  // '#F5C518',  // 9  yellow stripe
-  // '#1565C0',  // 10 blue stripe
-  // '#C62828',  // 11 red stripe
-  // '#6A1EA0',  // 12 purple stripe
-  // '#E65100',  // 13 orange stripe
-  // '#2E7D32',  // 14 green stripe
-  // '#6D1B1B',  // 15 maroon stripe
 ];
 
 // --- Globals ---
@@ -184,7 +177,7 @@ function init() {
 
   // -- Scene --
   scene = new THREE.Scene();
-  // Instant procedural sky as placeholder; the HDR replaces it once decoded.
+  // Procedural night-sky background (stars + moon).
   scene.background = _buildNightSkyBackground();
   scene.fog = new THREE.Fog(0x080d20, 10, 35);
 

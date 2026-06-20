@@ -14,10 +14,8 @@
  *   POCKET_RADIUS                - pocket capture radius
  *   POCKET_POSITIONS             - [x, z][] for the 6 pocket centres
  *   stepPhysics(balls, dt)       -> String[]  IDs of newly-pocketed balls this step
- *   isAllStopped(balls)          -> Boolean   true once every ball's velocity is exactly zero
  *   isReadyForNextShot(balls)    -> Boolean   true once every ball is below the perceptual
- *                                             "looks stopped" floor (looser/earlier than
- *                                             isAllStopped)
+ *                                             "looks stopped" floor
  *   snapToRest(balls)            -> void      zeroes vx/vz on every non-pocketed ball; call
  *                                             once isReadyForNextShot is true so no residual
  *                                             velocity is left for per-frame rotation/position
@@ -262,28 +260,13 @@ export function stepPhysics(balls, dt, onBallBall, onCushion) {
   return newlyPocketed;
 }
 
-// --- Utility: Stopped Check ---
-/**
- * Returns true when every non-pocketed ball has zero velocity.
- * @param {Array<{vx, vz, pocketed}>} balls
- * @returns {boolean}
- */
-export function isAllStopped(balls) {
-  for (const ball of balls) {
-    if (ball.pocketed) continue;
-    if (ball.vx !== 0 || ball.vz !== 0) return false;
-  }
-  return true;
-}
-
 // --- Utility: Ready-For-Next-Shot Check ---
 /**
  * Returns true once every non-pocketed ball's speed has dropped below the
- * perceptual "looks stopped" floor (READY_SPEED_SQ). Looser than
- * isAllStopped() by design - see the comment on READY_SPEED_SQ above - so
- * the gameplay state machine can re-enable the next shot as soon as the
- * table visibly looks at rest, instead of waiting for every ball's velocity
- * to decay all the way to an exact zero.
+ * perceptual "looks stopped" floor (READY_SPEED_SQ) - see the comment on
+ * READY_SPEED_SQ above. Looser than an exact-zero check so the gameplay state
+ * machine can re-enable the next shot as soon as the table visibly looks at
+ * rest, instead of waiting for every ball's velocity to decay to zero.
  * @param {Array<{vx, vz, pocketed}>} balls
  * @returns {boolean}
  */

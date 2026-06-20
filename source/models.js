@@ -1419,7 +1419,7 @@ export function createPlant2(scene) {
 
 // --- Painting 3 (right wall, +X, beside the door) ---
 /**
- * Loads painting3.glb and hangs it on the right wall (+X), on the -Z side of
+ * Loads painting4.glb and hangs it on the right wall (+X), on the -Z side of
  * the door. The frame is authored lying flat in the XZ plane with Y as the
  * thin depth axis and the face toward low-Y values.
  *

@@ -43,7 +43,7 @@ export function generateTextures() {
   // -- Ball ---
   // createBallTex is a per-ball factory (called once per ball, not shared).
   // ballRoughTex is a single shared roughness map for all balls. 512px keeps
-  // the number labels and stripe edges crisp at close camera distance.
+  // the number labels crisp at close camera distance.
   const createBallTex = (number, color) => _createBallTexture(number, color, 512);
   const ballRoughTex  = _createBallRoughnessMap(512);
 
@@ -209,13 +209,12 @@ function _createFeltRoughnessMap(size) {
   return new THREE.CanvasTexture(canvas);
 }
 
-// -- Ball texture: solid color + number label + stripe for balls 9-15 ---
+// -- Ball texture: solid color + number label ---
 /**
  * Creates a canvas texture for one pool ball.
- * Balls 9-15 get a white stripe band across the equator.
  * Ball 0 (cue ball) gets no number label.
  *
- * @param {number} number  - 0 = cue ball, 1-15 = numbered balls
+ * @param {number} number  - 0 = cue ball, 1-8 = numbered balls
  * @param {string} color   - CSS color for the ball's base
  * @param {number} size    - canvas side length in pixels
  */
@@ -227,12 +226,6 @@ function _createBallTexture(number, color, size) {
   // Base color fill
   ctx.fillStyle = color;
   ctx.fillRect(0, 0, size, size);
-
-  // Stripe band for striped balls (9-15): white horizontal band in the middle third
-  if (number >= 9 && number <= 15) {
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, Math.floor(size * 0.33), size, Math.floor(size * 0.34));
-  }
 
   // Number label (skip cue ball)
   if (number > 0) {
