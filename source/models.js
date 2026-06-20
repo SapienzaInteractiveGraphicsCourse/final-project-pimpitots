@@ -19,7 +19,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { TABLE_W, TABLE_H, BALL_RADIUS, POCKET_POSITIONS } from './physics.js';
 
 // ─── Shared Scene-Geometry Constants ─────────────────────────────────────────
-export const TABLE_SURFACE_Y = 0.76; // table felt surface height in world space (table "on the floor")
+export const TABLE_SURFACE_Y = 1.30; // table felt surface height in world space (table "on the floor")
 export const BALL_Y          = TABLE_SURFACE_Y + BALL_RADIUS; // ball center Y when resting on felt
 
 // Room dimensions
@@ -28,7 +28,7 @@ const ROOM_D = 18;
 const ROOM_H = 7.0;
 
 // Table-model-only dimensions (physics.js owns TABLE_W / TABLE_H)
-const TABLE_LEG_H = 0.72;  // table leg height (TABLE_SURFACE_Y - table panel thickness ~0.04)
+const TABLE_LEG_H = 1.26;  // table leg height (TABLE_SURFACE_Y - table panel thickness ~0.04)
 const RAIL_H      = 0.18;  // cushion rail height above felt
 const RAIL_W      = 0.52;  // cushion rail width (inward thickness)
 const POCKET_GAP  = 0.45;  // clearance per pocket opening (per rail side)
@@ -340,43 +340,70 @@ export function createTable(scene, texMap) {
   _buildPockets(group, bodyMat);
 
 
-  // ── Legs — turned wood profile (LatheGeometry) ───────────────────────
+  // ── Legs — tapered rectangular slab ─────────────────────────────────────
   const legMat = new THREE.MeshStandardMaterial({
     map:          texMap.leg.map,
     normalMap:    texMap.leg.normalMap,
     roughnessMap: texMap.leg.roughnessMap,
     roughness:    0.65,
-    metalness:         0.05,
+    metalness:    0.05,
   });
 
-  // Classic billiard-table turned leg: wide foot pad → tapered ankle → straight
-  // shaft → decorative upper swell → flared capital connecting to frame apron.
-  const legProfile = [
-    new THREE.Vector2(0.136, 0.000),  // foot pad — widest point at floor
-    new THREE.Vector2(0.120, 0.028),  // foot taper up
-    new THREE.Vector2(0.068, 0.075),  // ankle
-    new THREE.Vector2(0.057, 0.160),  // lower shaft
-    new THREE.Vector2(0.052, 0.460),  // shaft mid
-    new THREE.Vector2(0.060, 0.540),  // upper swell begins
-    new THREE.Vector2(0.078, 0.590),  // decorative bead
-    new THREE.Vector2(0.064, 0.630),  // neck
-    new THREE.Vector2(0.109, 0.690),  // capital flare
-    new THREE.Vector2(0.120, 0.720),  // capital top — meets frame
-  ];
+  // Tapered box: wider at top (meets frame apron) than at floor.
+  const LEG_TOP = 0.40;  // top face size — outer edge flush with table corner
+  const LEG_BOT = 0.14;  // bottom face size — narrow foot at floor
+  const LH = TABLE_LEG_H;
+  const ht = LEG_TOP / 2, hb = LEG_BOT / 2;
 
-  const legGeo = new THREE.LatheGeometry(legProfile, 20);
+  {
+    const pos = [], uvs = [];
+    const quad = (p0, p1, p2, p3) => {
+      pos.push(...p0, ...p1, ...p2,  ...p0, ...p2, ...p3);
+      uvs.push(0,0, 1,0, 1,1,  0,0, 1,1, 0,1);
+    };
+    quad([-ht,LH,-ht], [-ht,LH, ht], [ ht,LH, ht], [ ht,LH,-ht]);  // top   (+Y)
+    quad([-hb, 0,-hb], [ hb, 0,-hb], [ hb, 0, hb], [-hb, 0, hb]);  // bottom(-Y)
+    quad([-hb, 0, hb], [ hb, 0, hb], [ ht,LH, ht], [-ht,LH, ht]);  // front (+Z)
+    quad([ hb, 0,-hb], [-hb, 0,-hb], [-ht,LH,-ht], [ ht,LH,-ht]);  // back  (-Z)
+    quad([ hb, 0,-hb], [ ht,LH,-ht], [ ht,LH, ht], [ hb, 0, hb]);  // right (+X)
+    quad([-hb, 0, hb], [-ht,LH, ht], [-ht,LH,-ht], [-hb, 0,-hb]);  // left  (-X)
 
-  // Position at outer corners of the frame apron (RAIL_W extends beyond TABLE_W/2)
-  const LEG_X = TABLE_W / 2 + RAIL_W * 0.5;
-  const LEG_Z = TABLE_H / 2 + RAIL_W * 0.5;
+    const legGeo = new THREE.BufferGeometry();
+    legGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    legGeo.setAttribute('uv',       new THREE.Float32BufferAttribute(uvs, 2));
+    legGeo.computeVertexNormals();
 
-  for (const [lx, lz] of [[-LEG_X, LEG_Z], [LEG_X, LEG_Z], [-LEG_X, -LEG_Z], [LEG_X, -LEG_Z]]) {
-    const legMesh = new THREE.Mesh(legGeo, legMat);
-    legMesh.position.set(lx, 0, lz);
-    legMesh.castShadow    = true;
-    legMesh.receiveShadow = true;
-    legMesh.name = 'leg';
-    group.add(legMesh);
+    const LEG_X = TABLE_W / 2 + RAIL_W - LEG_TOP / 2;
+    const LEG_Z = TABLE_H / 2 + RAIL_W - LEG_TOP / 2;
+    for (const [lx, lz] of [[-LEG_X, LEG_Z], [LEG_X, LEG_Z], [-LEG_X, -LEG_Z], [LEG_X, -LEG_Z]]) {
+      const legMesh = new THREE.Mesh(legGeo, legMat);
+      legMesh.position.set(lx, 0, lz);
+      legMesh.castShadow    = true;
+      legMesh.receiveShadow = true;
+      legMesh.name = 'leg';
+      group.add(legMesh);
+    }
+  }
+
+  // ── Apron — vertical skirt under the frame, connecting leg tops ───────────
+  const APRON_H   = 0.22;   // hanging height below frame bottom
+  const APRON_T   = 0.04;   // panel thickness
+  const apronY    = (TABLE_SURFACE_Y - 0.084) - APRON_H / 2;  // body-bottom minus half height
+
+  const apronLongGeo  = new THREE.BoxGeometry(TABLE_W + RAIL_W * 2, APRON_H, APRON_T);
+  const apronShortGeo = new THREE.BoxGeometry(APRON_T, APRON_H, TABLE_H + RAIL_W * 2 - APRON_T * 2);
+
+  for (const sz of [-1, 1]) {
+    const m = new THREE.Mesh(apronLongGeo, legMat);
+    m.position.set(0, apronY, sz * (TABLE_H / 2 + RAIL_W - APRON_T / 2));
+    m.castShadow = m.receiveShadow = true;
+    group.add(m);
+  }
+  for (const sx of [-1, 1]) {
+    const m = new THREE.Mesh(apronShortGeo, legMat);
+    m.position.set(sx * (TABLE_W / 2 + RAIL_W - APRON_T / 2), apronY, 0);
+    m.castShadow = m.receiveShadow = true;
+    group.add(m);
   }
 
   scene.add(group);
