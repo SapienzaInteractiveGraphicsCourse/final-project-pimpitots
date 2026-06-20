@@ -76,7 +76,10 @@ let currentCameraIndex = 0;
 let cue;
 let lampOn    = true;
 let ceiling;                         // { group, light, lensMesh, onIntensity }
+let ceilingMesh;                     // the ceiling plane — its emissive glow tracks the ceiling light
 let ceilingOn = false;               // starts off - only the table lamps are lit on load
+const CEILING_GLOW_ON  = 0.5;        // ceiling-plane emissiveIntensity when the ceiling light is on
+const CEILING_GLOW_OFF = 0.15;       // dim baseline so the ceiling reads like the walls (not black) when off
 let ballEnvMap;
 let balls     = [];                  // [{ id, isCueBall, color, number, x, z, vx, vz, pocketed, mesh }]
 let btnLampEl, btnCamEl, btnMusicEl, btnCeilingEl;
@@ -212,7 +215,7 @@ function init() {
   texMap = generateTextures();
 
   // -- Scene geometry --
-  createRoom(scene, texMap);
+  ceilingMesh = createRoom(scene, texMap).ceilingMesh;
   createTable(scene, texMap);
   lamp = createLamp(scene);
   createLoungeCorner(scene);
@@ -232,6 +235,7 @@ function init() {
   // Start with the ceiling light off (only the table lamps lit on load).
   ceiling.light.intensity = 0;
   ceiling.lensMesh.material.emissiveIntensity = 0;
+  ceilingMesh.material.emissiveIntensity = CEILING_GLOW_OFF; // dim plaster baseline at load (light off)
 
   // -- Cue stick --
   cue = createCueStick(scene);
@@ -588,6 +592,7 @@ function _toggleCeiling() {
   ceilingOn = !ceilingOn;
   ceiling.light.intensity = ceilingOn ? ceiling.onIntensity : 0;
   ceiling.lensMesh.material.emissiveIntensity = ceilingOn ? 1.2 : 0;
+  ceilingMesh.material.emissiveIntensity = ceilingOn ? CEILING_GLOW_ON : CEILING_GLOW_OFF;
   _updateHUD();
 }
 
