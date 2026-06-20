@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>3D Pool Game — Interactive Graphics Project</title>
+  <title>3D Pool Game - Interactive Graphics Project</title>
 
   <!--
     Three.js r128, vendored locally at ./libs/three.module.js so the project
@@ -42,7 +42,7 @@
       cursor: crosshair;
     }
 
-    /* ── HUD panel — top-left ── */
+    /* -- HUD panel - top-left -- */
     #hud {
       position: fixed;
       top: 14px; left: 14px;
@@ -67,7 +67,7 @@
 
 
 
-    /* ── Overlay keyframes ── */
+    /* -- Overlay keyframes -- */
     @keyframes bounceIn {
       0%   { transform: scale(0.15) translateY(60px); opacity: 0; }
       55%  { transform: scale(1.10) translateY(-10px); opacity: 1; }
@@ -100,7 +100,7 @@
       100% { transform: translateY(0);    opacity: 1; }
     }
 
-    /* ── Overlay (level complete / win) ── */
+    /* -- Overlay (level complete / win) -- */
     #overlay {
       position: fixed;
       inset: 0;
@@ -212,7 +212,7 @@
       animation: confettiFall linear forwards;
     }
 
-    /* ── Bottom UI — power bar + button bar stacked ── */
+    /* -- Bottom UI - power bar + button bar stacked -- */
     #bottom-ui {
       position: fixed;
       bottom: 20px;
@@ -233,7 +233,7 @@
       100% { transform: translateX(0); }
     }
 
-    /* Power bar — styled like a button, glows with the fill color (set via JS) */
+    /* Power bar - styled like a button, glows with the fill color (set via JS) */
     #power-bar-wrap {
       --tremble: 0px;
       display: flex;
@@ -265,7 +265,7 @@
       transition: box-shadow 0.1s;
     }
 
-    /* ── Button bar ── */
+    /* -- Button bar -- */
     #button-bar {
       display: flex;
       gap: 8px;
@@ -326,7 +326,7 @@
       transform: scale(1.06);
     }
 
-    /* --- Controls legend — bottom-right, togglable --- */
+    /* --- Controls legend - bottom-right, togglable --- */
     #legend {
       position: fixed;
       bottom: 14px;
@@ -380,10 +380,10 @@
       margin-right: 2px;
     }
 
-    /* ── Lives HUD ── */
+    /* -- Lives HUD -- */
     #hud-lives { font-size: 23px; margin-top: 4px; min-height: 22px; letter-spacing: 2px; }
 
-    /* ── Difficulty card (slider) ── */
+    /* -- Difficulty card (slider) -- */
     .diff-card {
       padding: 68px 56px 44px !important;
       min-width: 340px;
@@ -391,7 +391,7 @@
       margin-top: 62px;
     }
 
-    /* Avatar circle — floats above the card top edge */
+    /* Avatar circle - floats above the card top edge */
     .diff-avatar {
       position: absolute;
       top: -62px;
@@ -473,7 +473,7 @@
       letter-spacing: 0.3px;
     }
 
-    /* Play button — full-width, color driven by JS inline style */
+    /* Play button - full-width, color driven by JS inline style */
     .overlay-card .btn-play-diff {
       width: 100%;
       border-radius: 14px;
@@ -491,7 +491,7 @@
       box-shadow: 0 8px 32px rgba(0,0,0,0.55) !important;
     }
 
-    /* ── Game Over overlay ── */
+    /* -- Game Over overlay -- */
     .overlay-card.game-over h1 {
       font-size: 52px; color: #ff4444;
       text-shadow: 0 0 20px rgba(255,68,68,0.8), 0 0 50px rgba(255,68,68,0.4);
@@ -507,7 +507,7 @@
       box-shadow: 0 0 36px rgba(200,60,60,0.60) !important;
     }
 
-    /* ── Heart-loss animation ── */
+    /* -- Heart-loss animation -- */
     .heart { display: inline-block; }
 
     @keyframes heartLose {
@@ -597,7 +597,7 @@
       100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0);   opacity: 0; filter: brightness(1); }
     }
 
-    /* ── Insane-difficulty UI overrides ── */
+    /* -- Insane-difficulty UI overrides -- */
     @keyframes heartPulse {
       0%, 100% { transform: scale(1);    filter: drop-shadow(0 0  6px rgba(185, 80, 255, 0.60)); }
       50%       { transform: scale(1.16); filter: drop-shadow(0 0 16px rgba(200,100, 255, 0.95)); }
@@ -659,12 +659,9 @@
     }
     body.difficulty-insane #life-lost-flash.flash { animation-duration: 0.85s; }
 
-    /* ── Initial loading overlay ──
-       Dismissed exclusively by main.js, once THREE.DefaultLoadingManager
-       confirms every texture/model load has finished AND a frame has
-       rendered showing the result — see _dismissLoader() in source/main.js.
-       No CSS-driven auto-dismiss timer: a fixed-duration animation would hide
-       this overlay on a schedule unrelated to real load time. */
+    /* -- Initial loading overlay --
+       Shown immediately and dismissed by main.js once all assets have loaded
+       and the first frame has rendered (see _dismissLoader in source/main.js). */
     #loading-overlay {
       position: fixed;
       inset: 0;
@@ -689,7 +686,7 @@
   <!-- Full-viewport WebGL canvas -->
   <canvas id="glCanvas"></canvas>
 
-  <!-- Initial loading overlay — visible immediately, dismissed by main.js after first render -->
+  <!-- Initial loading overlay - visible immediately, dismissed by main.js after first render -->
   <div id="loading-overlay">
     <div class="overlay-card">
       <span class="overlay-emoji spin">🎱</span>
@@ -698,7 +695,7 @@
     </div>
   </div>
 
-  <!-- HUD — top-left: level + balls remaining -->
+  <!-- HUD - top-left: level + balls remaining -->
   <div id="hud">
     <div id="hud-level">Level 1 / 4</div>
     <div id="hud-balls">Balls remaining: 1</div>
@@ -726,7 +723,7 @@
     </div>
   </div>
 
-  <!-- Controls legend — bottom-right, togglable -->
+  <!-- Controls legend - bottom-right, togglable -->
   <div id="legend" class="open">
     <button id="btn-legend-toggle">Controls ▾</button>
     <div id="legend-content">

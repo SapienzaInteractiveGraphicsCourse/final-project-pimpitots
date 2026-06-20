@@ -1,31 +1,30 @@
 /**
  * main.js
- * ─────────────────────────────────────────────────────────────────────────────
- * Responsibility: engine bootstrap — renderer, scene, cameras, cue/physics
+ * ---
+ * Responsibility: engine bootstrap - renderer, scene, cameras, cue/physics
  * gameplay loop, level progression, and HUD.
  *
  * Execution flow:
- *   init() → generateTextures() → createRoom → createTable → createLamp →
- *     createCueStick → Controls(canvas) → _startLevel(0) → animate()
+ *   init() -> generateTextures() -> createRoom -> createTable -> createLamp ->
+ *     createCueStick -> Controls(canvas) -> _startLevel(0) -> animate()
  *
  * Level progression:
- *   Level 1: 1 ball  |  Level 2: 3 balls  |  Level 3: 6 balls  |  Level 4: 10 balls
- *   Pocket all colored balls → level complete → after Level 4 → win screen.
+ *   Level 1: 1 ball  |  Level 2: 2 balls  |  Level 3: 3 balls  |  Level 4: 4 balls
+ *   Pocket all colored balls -> level complete -> after Level 4 -> win screen.
  *
  * Gameplay state machine (gameState):
- *   WAITING  — cue follows the cursor, charge bar is live, a shot may fire
- *   STRIKING — cue snaps forward through its short strike animation
- *   ROLLING  — physics is stepping every frame; cue is hidden
+ *   WAITING  - cue follows the cursor, charge bar is live, a shot may fire
+ *   STRIKING - cue snaps forward through its short strike animation
+ *   ROLLING  - physics is stepping every frame; cue is hidden
  *
  * Camera views (toggle with C key or button):
- *   0 = Overview  — wide overhead shot of the whole table
- *   1 = Player POV — low angle behind the cue ball, updated every frame
+ *   0 = Overview  - wide overhead shot of the whole table
+ *   1 = Player POV - low angle behind the cue ball, updated every frame
  *
  * Loading overlay:
- *   renderer.compile() pre-links all shader programs so frame 0 has no stall.
- *   We count 2 actual renderer.render() calls; after the second the GPU has
- *   presented the first real frame and the overlay fades out.
- * ─────────────────────────────────────────────────────────────────────────────
+ *   Dismissed once every tracked resource has loaded and the first frame has
+ *   been painted (see _maybeDismissLoader / _dismissLoader).
+ * ---
  */
 import * as THREE from 'three';
 import { createRoom, createTable, createLamp, createCueStick, createBallMesh, createLoungeCorner, createDartboard, createCabinet, createStools, createPainting, createFrame2, createPlant, createPlant2, createCoatRack, createPainting3, createPlant2Corner, createFloorLamp, createCeilingLight, CUE_REACH, CUE_CLEAR_R, TABLE_SURFACE_Y, BALL_Y } from './models.js';
@@ -34,7 +33,7 @@ import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, B
 import { Controls } from './controls.js';
 import { initSounds, startBgMusic, stopBgMusic, setMusicRate, setMusicDifficulty, playHitSound, playBallHitSound, playBallWallSound, playBallDropSound, playErrorSound, playSuccessSound, playFailSound, playWinSound, playHeartBrokenSound, playClickSound } from './sounds.js';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// --- Constants ---
 const LEVELS_BALL_COUNT = [1, 2, 3, 4];  // colored balls per level (level N = index N-1)
 const NUM_LEVELS        = LEVELS_BALL_COUNT.length; // 4
 
@@ -57,7 +56,7 @@ const DT_CAP = 0.05; // clamp on per-frame delta time
 const SUBSTEP_SAFE_SPEED    = BALL_RADIUS / (2 * DT_CAP);
 const SUBSTEP_SAFE_SPEED_SQ = SUBSTEP_SAFE_SPEED * SUBSTEP_SAFE_SPEED;
 
-// ─── Ball Colors (index 0 = cue ball, 1–15 = standard pool palette) ──────────
+// --- Ball Colors (index 0 = cue ball, 1-8 = solid pool palette) ---
 const BALL_COLORS = [
   '#F5F5F5',  // 0  cue ball (white)
   '#F5C518',  // 1  yellow
@@ -68,23 +67,16 @@ const BALL_COLORS = [
   '#2E7D32',  // 6  green
   '#6D1B1B',  // 7  maroon
   '#212121',  // 8  black (8-ball)
-  // '#F5C518',  // 9  yellow stripe
-  // '#1565C0',  // 10 blue stripe
-  // '#C62828',  // 11 red stripe
-  // '#6A1EA0',  // 12 purple stripe
-  // '#E65100',  // 13 orange stripe
-  // '#2E7D32',  // 14 green stripe
-  // '#6D1B1B',  // 15 maroon stripe
 ];
 
-// ─── Globals ──────────────────────────────────────────────────────────────────
+// --- Globals ---
 let renderer, scene, clock, lamp, texMap;
 let camera0, camera1, activeCamera;
 let currentCameraIndex = 0;
 let cue;
 let lampOn    = true;
 let ceiling;                         // { group, light, lensMesh, onIntensity }
-let ceilingOn = false;               // starts off — only the table lamps are lit on load
+let ceilingOn = false;               // starts off - only the table lamps are lit on load
 let ballEnvMap;
 let balls     = [];                  // [{ id, isCueBall, color, number, x, z, vx, vz, pocketed, mesh }]
 let btnLampEl, btnCamEl, btnMusicEl, btnCeilingEl;
@@ -97,7 +89,7 @@ let camDistBehind = CAM_DIST_BEHIND;
 
 const _ballScreenPos = new THREE.Vector3(); // scratch vector for cursor-targeted aiming
 
-// ─── Gameplay State ───────────────────────────────────────────────────────────
+// --- Gameplay State ---
 const STATE = {
   WAITING:  'WAITING',
   STRIKING: 'STRIKING',
@@ -113,16 +105,16 @@ let strikePendingPhi    = 0;    // cue aim angle captured at shot-fire
 let strikePendingPower  = 0;    // shot power captured at shot-fire
 let strikeHitApplied    = false; // true once cue-ball velocity has been applied this strike
 
-// ─── Aim Collision State ──────────────────────────────────────────────────────
+// --- Aim Collision State ---
 let _resolvedAim = 0;  // last frame's collision-filtered aim angle actually shown (eased)
 
-// ─── Level State ──────────────────────────────────────────────────────────────
+// --- Level State ---
 let currentLevel            = 0;     // 0-based index into LEVELS_BALL_COUNT
 let ballsRemaining          = 0;     // colored balls still on table
 let gameWon                 = false;
 let _levelTransitionTimeout = null;  // handle so Reset can cancel a pending advance
 
-// ─── Difficulty / Lives State ─────────────────────────────────────────────────
+// --- Difficulty / Lives State ---
 let difficulty               = 'normal';
 let maxLives                 = 5;
 let playerLives              = 5;
@@ -130,10 +122,10 @@ let gameOver                 = false;
 let difficultyChosen         = false;
 let _pocketedColoredThisShot = false;
 
-// ─── HUD element refs (cached in _buildHUD) ───────────────────────────────────
+// --- HUD element refs (cached in _buildHUD) ---
 let hudLevelEl, hudBallsEl, hudLivesEl, overlayEl, _lifeFlashEl;
 
-// ─── Loading-overlay lifecycle state ─────────────────────────────────────────
+// --- Loading-overlay lifecycle state ---
 // See _maybeDismissLoader() / _dismissLoader() below for how these gate the
 // #loading-overlay dismissal.
 let _resourcesReady  = false; // true once THREE.DefaultLoadingManager.onLoad has fired
@@ -141,11 +133,11 @@ let _framePainted    = false; // true once a frame has rendered after the render
 let _loaderDismissed = false; // guards against double-dismissal
 let _loaderFallback  = null;  // setTimeout handle for the hard safety-net dismissal
 
-// ─── Entry Point ──────────────────────────────────────────────────────────────
+// --- Entry Point ---
 window.addEventListener('DOMContentLoaded', init);
 
 function init() {
-  // ── Loading overlay: start tracking resource loads before any are kicked off ──
+  // -- Loading overlay: start tracking resource loads before any are kicked off --
   // Every THREE.TextureLoader / THREE.GLTFLoader created below without an
   // explicit manager argument registers itself on this singleton, so onLoad
   // fires exactly once after every tracked item has finished or failed.
@@ -159,16 +151,16 @@ function init() {
   // Hard safety net: if onLoad somehow never fires, force the overlay closed
   // after 15s instead of hanging indefinitely.
   _loaderFallback = setTimeout(function () {
-    console.warn('[loading] fallback timeout reached — dismissing loading overlay without confirmed resource completion');
+    console.warn('[loading] fallback timeout reached - dismissing loading overlay without confirmed resource completion');
     _resourcesReady = true;
     _framePainted   = true;
     _dismissLoader();
   }, 15000);
 
-  // ── Sounds ──
+  // -- Sounds --
   initSounds();
 
-  // ── Renderer ──
+  // -- Renderer --
   const canvas = document.getElementById('glCanvas');
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio || 1);
@@ -183,14 +175,14 @@ function init() {
   renderer.setClearColor(0x080d20, 1);
   renderer.clear();
 
-  // ── Scene ──
+  // -- Scene --
   scene = new THREE.Scene();
-  // Instant procedural sky as placeholder; the HDR replaces it once decoded.
+  // Procedural night-sky background (stars + moon).
   scene.background = _buildNightSkyBackground();
   scene.fog = new THREE.Fog(0x080d20, 10, 35);
 
 
-  // ── Cameras ──
+  // -- Cameras --
   const aspect = window.innerWidth / window.innerHeight;
 
   camera0 = new THREE.PerspectiveCamera(52, aspect, 0.1, 100);
@@ -201,8 +193,8 @@ function init() {
 
   activeCamera = camera0;
 
-  // ── Lights ──
-  // Dim hemisphere baseline (cool sky / warm floor) — just enough indirect-bounce
+  // -- Lights --
+  // Dim hemisphere baseline (cool sky / warm floor) - just enough indirect-bounce
   // fill that the room is never pure black when the ceiling light is switched off.
   // General room brightness is carried by the toggleable ceiling light instead.
   const hemiLight = new THREE.HemisphereLight(0xb9c4e0, 0x3a2f28, 0.22);
@@ -216,10 +208,10 @@ function init() {
   fillLight.position.set(-8, 6, 4);
   scene.add(fillLight);
 
-  // ── Textures ──
+  // -- Textures --
   texMap = generateTextures();
 
-  // ── Scene geometry ──
+  // -- Scene geometry --
   createRoom(scene, texMap);
   createTable(scene, texMap);
   lamp = createLamp(scene);
@@ -236,58 +228,54 @@ function init() {
   createPlant2Corner(scene);
   createFloorLamp(scene);
   ceiling = createCeilingLight(scene);
-  ceiling.fixture.visible = false; // game starts in overview — hide the fixture, keep its light
+  ceiling.fixture.visible = false; // game starts in overview - hide the fixture, keep its light
   // Start with the ceiling light off (only the table lamps lit on load).
   ceiling.light.intensity = 0;
   ceiling.lensMesh.material.emissiveIntensity = 0;
 
-  // ── Cue stick ──
+  // -- Cue stick --
   cue = createCueStick(scene);
 
-  // ── Controls ──
+  // -- Controls --
   controls = new Controls(canvas);
 
-  // ── Environment map (IBL for ball specular) ──
+  // -- Environment map (IBL for ball specular) --
   ballEnvMap = _buildEnvMap();
   scene.environment = ballEnvMap;
 
-  // ── Clock ──
+  // -- Clock --
   clock = new THREE.Clock();
 
-  // ── HUD & UI ──
+  // -- HUD & UI --
   _buildHUD();
   _bindUIButtons();
 
-  // ── Events ──
+  // -- Events --
   window.addEventListener('resize', _onResize);
   window.addEventListener('keydown', _onKeyDown);
   canvas.addEventListener('wheel', _onWheel, { passive: false });
 
-  // ── Start game at level 0 ──
+  // -- Start game at level 0 --
   _startLevel(0);
 
-  // ── Render loop ──
+  // -- Render loop --
   animate();
 
-  // One rAF after animate() starts confirms the GPU has actually painted a
-  // frame. Combined with _resourcesReady (set by DefaultLoadingManager.onLoad
-  // above), this is what _maybeDismissLoader() waits on before hiding the
-  // overlay. The render loop keeps running, so by the time the last asset
-  // finishes loading the very next frame will already show it — well within
-  // the overlay's 0.6s fade-out.
+  // Mark the first painted frame so the loader can be dismissed (it also waits
+  // on _resourcesReady from the loading manager).
   requestAnimationFrame(function () {
     _framePainted = true;
     _maybeDismissLoader();
   });
 }
 
-// ─── Loading Overlay ──────────────────────────────────────────────────────────
+// --- Loading Overlay ---
 
 /**
  * Hides the loading overlay once both gating conditions are true:
- *   1. _resourcesReady — DefaultLoadingManager.onLoad has fired (every
+ *   1. _resourcesReady - DefaultLoadingManager.onLoad has fired (every
  *      texture/model load initiated during init() has finished or failed).
- *   2. _framePainted   — at least one frame has rendered since the loop started.
+ *   2. _framePainted   - at least one frame has rendered since the loop started.
  * Safe to call any number of times from any signal source.
  */
 function _maybeDismissLoader() {
@@ -315,7 +303,7 @@ function _dismissLoader() {
   }, 700);
 }
 
-// ─── Resize ───────────────────────────────────────────────────────────────────
+// --- Resize ---
 function _onResize() {
   const aspect = window.innerWidth / window.innerHeight;
   camera0.aspect = aspect; camera0.updateProjectionMatrix();
@@ -323,7 +311,7 @@ function _onResize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-// ─── Keyboard ─────────────────────────────────────────────────────────────────
+// --- Keyboard ---
 function _onKeyDown(e) {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   const k = e.key.toUpperCase();
@@ -335,7 +323,7 @@ function _onKeyDown(e) {
   if (k === 'M') _toggleMusic();
 }
 
-// ─── Level Management ─────────────────────────────────────────────────────────
+// --- Level Management ---
 
 /**
  * Starts (or restarts) a level: clears old balls, spawns new ones,
@@ -412,7 +400,7 @@ function _resetGame() {
   _showDifficultyMenu();
 }
 
-// ─── Cue Ball Respawn (after scratch) ────────────────────────────────────────
+// --- Cue Ball Respawn (after scratch) ---
 function _respawnCueBall() {
   const cueBall = balls.find(b => b.isCueBall);
   if (!cueBall) return;
@@ -425,14 +413,14 @@ function _respawnCueBall() {
   cueBall.mesh.position.set(cueBall.x, BALL_Y, cueBall.z);
 }
 
-// ─── Shot Firing ──────────────────────────────────────────────────────────────
+// --- Shot Firing ---
 function _fireShot(power) {
   const cueBall = balls.find(b => b.isCueBall && !b.pocketed);
   if (!cueBall) return;
 
   _pocketedColoredThisShot = false;
 
-  // Defer velocity — applied inside _updateCue once the cue tip visually
+  // Defer velocity - applied inside _updateCue once the cue tip visually
   // crosses the ball surface, so the ball doesn't fly away before the
   // stick is seen to make contact.
   strikePendingPhi    = cue.root.rotation.y;
@@ -447,8 +435,8 @@ function _fireShot(power) {
   controls.enabled    = false;
 }
 
-// ─── Cue Update ───────────────────────────────────────────────────────────────
-// Wrap an angle to (−π, π].
+// --- Cue Update ---
+// Wrap an angle to (-pi, pi].
 function _wrapPi(a) {
   while (a >   Math.PI) a -= 2 * Math.PI;
   while (a <= -Math.PI) a += 2 * Math.PI;
@@ -456,17 +444,10 @@ function _wrapPi(a) {
 }
 
 /**
- * Resolves the player's raw aim angle into one where the cue stick clears every
- * other ball. The stick points from the cue ball in world direction
- * (cos φ, −sin φ); a ball lying that way within CUE_REACH blocks a cone of
- * angles ±asin((BALL_RADIUS + CUE_CLEAR_R)/L) around its bearing.
- *
- * If the raw aim lands inside a cone, it snaps to the *nearer* edge: the cue
- * rides up to a ball and waits at its tangent (never penetrating), and only
- * once the raw aim sweeps past the ball's centre bearing does the target flip
- * to the far edge. The caller eases toward this target, so that flip reads as a
- * quick glide past the ball rather than a teleport. The returned angle is
- * always collision-free, so a resting aim can never sit inside a ball.
+ * Returns an aim angle where the cue stick clears every other ball. Each ball
+ * within CUE_REACH blocks a cone of angles around its bearing; if the raw aim
+ * falls inside a cone it snaps to the nearer edge. The caller eases toward the
+ * result, so the snap reads as the cue gliding past the ball.
  *
  * @param {number} desired  raw aim angle this frame
  * @param {Object} cueBall  the active cue ball ({x, z})
@@ -481,7 +462,7 @@ function _resolveAimAngle(desired, cueBall) {
     const L  = Math.hypot(rx, rz);
     if (L < 1e-3 || L > CUE_REACH) continue;
     const s = (BALL_RADIUS + CUE_CLEAR_R) / L;
-    if (s >= 1) continue; // ball effectively overlaps the cue ball — no valid cone
+    if (s >= 1) continue; // ball effectively overlaps the cue ball - no valid cone
     cones.push({ center: Math.atan2(-rz, rx), delta: Math.asin(s) });
   }
   if (cones.length === 0) return desired;
@@ -531,9 +512,8 @@ function _updateCue(dt) {
       }
     }
 
-    // Keep the stick from piercing another ball: snap the aim out of any ball's
-    // blocked cone (to its nearer edge), then ease toward that collision-free
-    // target so gliding past a ball happens over a few frames, not a teleport.
+    // Snap the aim clear of any ball, then ease toward it so the stick glides
+    // past rather than jumping.
     const targetAim = _resolveAimAngle(controls.aimAngle, cueBall);
     const tt = 1 - Math.exp(-AIM_SMOOTH_RATE * dt);
     _resolvedAim = _wrapPi(_resolvedAim + _wrapPi(targetAim - _resolvedAim) * tt);
@@ -544,14 +524,11 @@ function _updateCue(dt) {
   } else if (gameState === STATE.STRIKING) {
     strikeTimer += dt;
     const t = Math.min(strikeTimer / STRIKE_FORWARD_TIME, 1.0);
-    // Drive the tip all the way to the ball centre for an unambiguous visual hit.
-    // BALL_RADIUS = 0.18 → at targetX = -BALL_RADIUS the tip's near-face sits at
-    // x = BALL_RADIUS + targetX = 0, i.e. the ball's centre.
+    // Drive the tip to the ball centre so the hit looks unambiguous.
     const targetX = -BALL_RADIUS;
     cue.group.position.x = strikeStartPullback + (targetX - strikeStartPullback) * t;
 
-    // Apply cue-ball velocity the first frame the tip's near-face reaches the
-    // ball surface: cueGroup.x ≤ 0  ⟺  tipFace ≤ BALL_RADIUS (ball surface).
+    // Apply the cue-ball velocity the first frame the tip reaches the ball surface.
     if (!strikeHitApplied && cue.group.position.x <= 0) {
       const hitBall = balls.find(b => b.isCueBall && !b.pocketed);
       if (hitBall) {
@@ -569,7 +546,7 @@ function _updateCue(dt) {
   }
 }
 
-// ─── Ball Rolling Rotation ────────────────────────────────────────────────────
+// --- Ball Rolling Rotation ---
 const _deltaQ   = new THREE.Quaternion();
 const _rollAxis = new THREE.Vector3();
 
@@ -582,7 +559,7 @@ function _updateBallRotation(ball, dt) {
   ball.mesh.quaternion.premultiply(_deltaQ);
 }
 
-// ─── Lamp ─────────────────────────────────────────────────────────────────────
+// --- Lamp ---
 function _updateLamp(elapsedTime) {
   lamp.anchor.rotation.x = Math.sin(elapsedTime * LAMP_SWING_SPEED) * LAMP_SWING_AMP;
 }
@@ -614,7 +591,7 @@ function _toggleCeiling() {
   _updateHUD();
 }
 
-// ─── Camera ───────────────────────────────────────────────────────────────────
+// --- Camera ---
 function _switchCamera() {
   currentCameraIndex = (currentCameraIndex + 1) % 2;
   activeCamera = currentCameraIndex === 0 ? camera0 : camera1;
@@ -640,7 +617,7 @@ function _updatePlayerCamera() {
   camera1.lookAt(cx, BALL_Y + 0.05, cz);
 }
 
-// ─── Player-POV Zoom ──────────────────────────────────────────────────────────
+// --- Player-POV Zoom ---
 function _onWheel(e) {
   if (activeCamera !== camera1) return;
   e.preventDefault();
@@ -648,20 +625,20 @@ function _onWheel(e) {
   camDistBehind = Math.max(1.5, Math.min(6.0, camDistBehind + step));
 }
 
-// ─── Render Loop ──────────────────────────────────────────────────────────────
+// --- Render Loop ---
 function animate() {
   requestAnimationFrame(animate);
 
-  // ── 1. Frame timing ──
+  // -- 1. Frame timing --
   const dt          = Math.min(clock.getDelta(), DT_CAP);
   const elapsedTime = clock.elapsedTime;
 
-  // ── 2. Input ──
+  // -- 2. Input --
   controls.update();
   const shot = controls.consumeShot();
   if (shot && gameState === STATE.WAITING) _fireShot(shot.power);
 
-  // ── 3. Physics ──
+  // -- 3. Physics --
   if (gameState === STATE.ROLLING || gameState === STATE.STRIKING) {
     let maxSpeedSq = 0;
     for (const ball of balls) {
@@ -684,7 +661,7 @@ function animate() {
       if (b.isCueBall) {
         setTimeout(() => _respawnCueBall(), 800);
       } else {
-        // Colored ball pocketed — decrement counter and check for level complete
+        // Colored ball pocketed - decrement counter and check for level complete
         _pocketedColoredThisShot = true;
         ballsRemaining--;
         _updateHUD();
@@ -710,28 +687,28 @@ function animate() {
     }
   }
 
-  // ── 4. Sync ball meshes to physics state ──
+  // -- 4. Sync ball meshes to physics state --
   for (const ball of balls) {
     if (ball.pocketed) continue;
     ball.mesh.position.set(ball.x, BALL_Y, ball.z);
     _updateBallRotation(ball, dt);
   }
 
-  // ── 5. Cue ──
+  // -- 5. Cue --
   _updateCue(dt);
 
-  // ── 6. Lamp ──
+  // -- 6. Lamp --
   _updateLamp(elapsedTime);
 
-  // ── 7. Camera ──
+  // -- 7. Camera --
   if (activeCamera === camera1) _updatePlayerCamera();
 
-  // ── 8. Render + UI ──
+  // -- 8. Render + UI --
   renderer.render(scene, activeCamera);
   _updatePowerBar();
 }
 
-// ─── Level Completion ─────────────────────────────────────────────────────────
+// --- Level Completion ---
 function _onLevelComplete() {
   gameState        = STATE.WAITING;
   controls.enabled = false;
@@ -815,7 +792,7 @@ function _showWinScreen() {
   });
 }
 
-// ─── Environment Map ──────────────────────────────────────────────────────────
+// --- Environment Map ---
 function _buildEnvMap() {
   const canvas  = document.createElement('canvas');
   canvas.width  = 512;
@@ -847,7 +824,7 @@ function _buildEnvMap() {
   return envMap;
 }
 
-// ─── Night Sky Background ─────────────────────────────────────────────────────
+// --- Night Sky Background ---
 function _buildNightSkyBackground() {
   const W = 2048, H = 1024;
   const canvas = document.createElement('canvas');
@@ -901,12 +878,11 @@ function _buildNightSkyBackground() {
   return tex;
 }
 
-// ─── HUD / UI ─────────────────────────────────────────────────────────────────
+// --- HUD / UI ---
 
 /**
- * Caches all DOM element references needed for the HUD.
- * The static HTML elements (bottom-ui, buttons, legend) are already in index.html.
- * We only create the HUD panel and overlay here.
+ * Caches the HUD's DOM references (the elements live in index.html) and creates
+ * the life-loss flash overlay.
  */
 function _buildHUD() {
   hudLevelEl     = document.getElementById('hud-level');
@@ -973,7 +949,7 @@ function _updatePowerBar() {
   powerBarWrapEl.style.setProperty('--tremble', `${tremble}px`);
 }
 
-// ─── Difficulty Menu ──────────────────────────────────────────────────────────
+// --- Difficulty Menu ---
 
 function _showDifficultyMenu() {
   document.body.classList.remove('difficulty-insane');
@@ -1120,7 +1096,7 @@ function _showDifficultyMenu() {
   slider.addEventListener('input', function() {
     const v = parseFloat(slider.value);
     updateFace(v);
-    // Ramp playback rate from 1.0× (hard, v=1) up to 1.4× (insane, v=2); flat below v=1
+    // Ramp playback rate from 1.0x (hard, v=1) up to 1.4x (insane, v=2); flat below v=1
     setMusicRate(v <= 1 ? 1.0 : 1.0 + (v - 1) * 0.4);
   });
 
@@ -1149,7 +1125,7 @@ function _selectDifficulty(diff, lives) {
   _startLevel(0);
 }
 
-// ─── Life System ─────────────────────────────────────────────────────────────
+// --- Life System ---
 
 function _loseLife() {
   const heartSpans  = hudLivesEl ? hudLivesEl.querySelectorAll('.heart') : [];
@@ -1196,7 +1172,7 @@ function _loseLife() {
         setTimeout(() => document.body.classList.remove('screen-tremble'), 1000);
       }, 850);
 
-      // 65% of the 1700ms animation — heart starts rapidly expanding and fading
+      // 65% of the 1700ms animation - heart starts rapidly expanding and fading
       setTimeout(playHeartBrokenSound, 1105);
 
       setTimeout(() => {
