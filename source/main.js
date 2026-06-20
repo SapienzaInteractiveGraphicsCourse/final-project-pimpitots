@@ -189,7 +189,7 @@ function init() {
   const aspect = window.innerWidth / window.innerHeight;
 
   camera0 = new THREE.PerspectiveCamera(52, aspect, 0.1, 100);
-  camera0.position.set(0, 14, 5);
+  camera0.position.set(0, 11, 5);
   camera0.lookAt(0, TABLE_SURFACE_Y, 0);
 
   camera1 = new THREE.PerspectiveCamera(58, aspect, 0.05, 100);
