@@ -1,4 +1,4 @@
-// ─── Sound Management ─────────────────────────────────────────────────────────
+// --- Sound Management ---
 
 // Resolve the sounds directory relative to THIS module file so paths are
 // correct regardless of whether the page is served via HTTP or opened via
@@ -75,7 +75,7 @@ export function setMusicDifficulty(diff) {
   setMusicRate(diff === 'insane' ? 1.4 : 1.0);
 }
 
-// audioCtx.resume() is async — we must wait for it to resolve before calling
+// audioCtx.resume() is async - we must wait for it to resolve before calling
 // src.start(), otherwise the sound plays into a suspended context and is lost.
 function _playBuffer(buffer, speed) {
   if (!buffer || !audioCtx) return;

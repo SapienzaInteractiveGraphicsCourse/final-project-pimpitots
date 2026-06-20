@@ -1,13 +1,13 @@
 /**
  * controls.js
- * ─────────────────────────────────────────────────────────────────────────────
+ * ---
  * Responsibility: mouse/touch input for aiming, charging, and firing the cue.
- * No Three.js or scene dependency — exposes plain state that main.js reads
+ * No Three.js or scene dependency - exposes plain state that main.js reads
  * each frame to drive the cue stick and camera.
  *
  * Gesture model (one press-and-release on the canvas):
- *   - Press and hold in place  → charge builds up; release fires the shot.
- *   - Press and drag           → aims the cue (rotates aimAngle); charging
+ *   - Press and hold in place  -> charge builds up; release fires the shot.
+ *   - Press and drag           -> aims the cue (rotates aimAngle); charging
  *                                 for that press is cancelled, so releasing
  *                                 after a drag does not fire a shot.
  *
@@ -22,7 +22,7 @@
  *     .isAiming      - true while the current press is being dragged to aim
  *     .update()      - call once per frame to refresh chargeAmount/pullback
  *     .consumeShot() - returns { power } once per fired shot, then clears it
- * ─────────────────────────────────────────────────────────────────────────────
+ * ---
  */
 
 const AIM_SENSITIVITY     = 0.005; // radians of aim rotation per pixel of drag
@@ -39,7 +39,7 @@ export class Controls {
    * @param {HTMLCanvasElement} canvas - element to attach pointer listeners to
    */
   constructor(canvas) {
-    // ── Public state read by main.js every frame ──
+    // -- Public state read by main.js every frame --
     this.aimAngle     = 0;
     this.mouseX        = window.innerWidth  / 2;
     this.mouseY        = window.innerHeight / 2;
@@ -47,7 +47,7 @@ export class Controls {
     this.pullback     = 0;
     this.enabled      = true;
 
-    // ── Internal gesture-tracking state ──
+    // -- Internal gesture-tracking state --
     this._isMouseDown     = false;
     this._isAiming        = false;
     this._isCharging      = false;
@@ -61,7 +61,7 @@ export class Controls {
     this._bindEvents(canvas);
   }
 
-  // ─── Event Binding ────────────────────────────────────────────────────────
+  // --- Event Binding ---
   /**
    * Attaches all mouse/touch listeners to the canvas.
    * @param {HTMLCanvasElement} canvas
@@ -77,7 +77,7 @@ export class Controls {
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
-  // ─── Mouse Handlers ───────────────────────────────────────────────────────
+  // --- Mouse Handlers ---
   /**
    * Starts a new press. Charging begins immediately on the assumption the
    * player is holding still; a subsequent drag past AIM_DRAG_TOLERANCE will
@@ -150,7 +150,7 @@ export class Controls {
   };
 
   /**
-   * Aborts the current press without firing — leaving the canvas mid-charge
+   * Aborts the current press without firing - leaving the canvas mid-charge
    * means the player can no longer see or control the shot they'd release.
    */
   _onMouseLeave = () => {
@@ -161,7 +161,7 @@ export class Controls {
     this.pullback      = 0;
   };
 
-  // ─── Touch Handlers (mirror the mouse handlers above) ────────────────────
+  // --- Touch Handlers (mirror the mouse handlers above) ---
   /**
    * @param {TouchEvent} e
    */
@@ -232,7 +232,7 @@ export class Controls {
     this.pullback      = 0;
   };
 
-  // ─── Per-Frame Update ─────────────────────────────────────────────────────
+  // --- Per-Frame Update ---
   /**
    * Recomputes chargeAmount (0..1) and the derived cue pullback distance
    * from how long the current charging press has been held. Call once per
@@ -248,7 +248,7 @@ export class Controls {
     this.pullback = this.chargeAmount * MAX_PULLBACK;
   }
 
-  // ─── Shot Consumption ─────────────────────────────────────────────────────
+  // --- Shot Consumption ---
   /**
    * Returns the pending shot (if any) and clears it, so each completed
    * charge-and-release is consumed exactly once.
@@ -260,7 +260,7 @@ export class Controls {
     return shot;
   }
 
-  // ─── State Getters ────────────────────────────────────────────────────────
+  // --- State Getters ---
   get isCharging() {
     return this._isCharging;
   }

@@ -1,24 +1,24 @@
 /**
  * models.js
- * ─────────────────────────────────────────────────────────────────────────────
+ * ---
  * Responsibility: Three.js mesh/hierarchy construction and procedural/PBR
- * texture generation. No game logic lives here — purely geometry & materials.
+ * texture generation. No game logic lives here - purely geometry & materials.
  *
  * Exported:
- *   createRoom(scene, texMap)      → { group }
- *   createTable(scene, texMap)     → { group, surfaceMesh }
- *   createLamp(scene)              → { anchor, bulbMeshes, lights }
+ *   createRoom(scene, texMap)      -> { group }
+ *   createTable(scene, texMap)     -> { group, surfaceMesh }
+ *   createLamp(scene)              -> { anchor, bulbMeshes, lights }
  *
  * Textures consumed here (texMap) are generated in textures.js.
  *
  * Coordinate system: Y-up. Room floor at Y = 0. Table surface at Y = TABLE_SURFACE_Y.
- * ─────────────────────────────────────────────────────────────────────────────
+ * ---
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { TABLE_W, TABLE_H, BALL_RADIUS, POCKET_POSITIONS } from './physics.js';
 
-// ─── Shared Scene-Geometry Constants ─────────────────────────────────────────
+// --- Shared Scene-Geometry Constants ---
 export const TABLE_SURFACE_Y = 0.76; // table felt surface height in world space (table "on the floor")
 export const BALL_Y          = TABLE_SURFACE_Y + BALL_RADIUS; // ball center Y when resting on felt
 
@@ -33,7 +33,7 @@ const RAIL_H      = 0.18;  // cushion rail height above felt
 const RAIL_W      = 0.52;  // cushion rail width (inward thickness)
 const POCKET_GAP  = 0.45;  // clearance per pocket opening (per rail side)
 
-// ─── Room ─────────────────────────────────────────────────────────────────────
+// --- Room ---
 /**
  * Creates and adds the closed room (floor, ceiling, 4 walls) to the scene.
  * @param {THREE.Scene} scene
@@ -62,7 +62,7 @@ export function createRoom(scene, texMap) {
     metalness:    0.0,
   });
 
-  // Room is a large box — we render its inside faces.
+  // Room is a large box - we render its inside faces.
   // Face index 1 (-X, left wall) uses invisMat so the window hole shows through.
   const invisMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false });
   const roomGeo  = new THREE.BoxGeometry(ROOM_W, ROOM_H, ROOM_D);
@@ -70,24 +70,23 @@ export function createRoom(scene, texMap) {
   const roomMesh = new THREE.Mesh(roomGeo, [wallMat, invisMat, wallMat, wallMat, wallMat, wallMat]);
   roomMesh.position.set(0, ROOM_H / 2, 0);
   roomMesh.name = 'roomBox';
-  // Three.js shadow bias is inverted
-  // for BackSide faces, producing large black artifacts on the ceiling.
-  // Wall shadow reception is handled by the separate floor plane instead.
+  // BackSide faces don't receive shadows cleanly (they show black artifacts on
+  // the ceiling), so the dedicated floor plane below carries shadow reception.
   group.add(roomMesh);
   roomMesh.receiveShadow = true;
 
   // Floor (separate plane so we can use the floor material)
   const floorGeo  = new THREE.PlaneGeometry(ROOM_W, ROOM_D);
-  // aoMap requires a second UV channel — reuse the primary UVs (r128 has no auto-fallback)
+  // aoMap requires a second UV channel - reuse the primary UVs (r128 has no auto-fallback)
   floorGeo.setAttribute('uv2', new THREE.BufferAttribute(floorGeo.attributes.uv.array, 2));
   const floorMesh = new THREE.Mesh(floorGeo, floorMat);
   floorMesh.rotation.x = -Math.PI / 2;  // lie flat in XZ plane
-  floorMesh.position.y = 0.001; // 1mm above room-box bottom face (both at Y=0 → Z-fight)
+  floorMesh.position.y = 0.001; // 1mm above room-box bottom face (both at Y=0 -> Z-fight)
   floorMesh.receiveShadow = true;
   floorMesh.name = 'floor';
   group.add(floorMesh);
 
-  // ── Skirting boards ──────────────────────────────────────────────────────
+  // -- Skirting boards ---
   // Dark wood strip running around the base of all four walls.
   const SK_H = 0.20;  // height
   const SK_D = 0.04;  // protrusion from wall
@@ -102,9 +101,9 @@ export function createRoom(scene, texMap) {
 
   // Each entry: [boxWidth, boxDepth, centerX, centerZ, rotationY]
   const skirtDefs = [
-    [ROOM_W,              SK_D, 0,                     -(ROOM_D / 2 - SK_D / 2), 0           ],  // front  (−Z)
+    [ROOM_W,              SK_D, 0,                     -(ROOM_D / 2 - SK_D / 2), 0           ],  // front  (-Z)
     [ROOM_W,              SK_D, 0,                      (ROOM_D / 2 - SK_D / 2), 0           ],  // back   (+Z)
-    [ROOM_D - SK_D * 2,   SK_D, -(ROOM_W / 2 - SK_D / 2), 0,                    Math.PI / 2 ],  // left   (−X)
+    [ROOM_D - SK_D * 2,   SK_D, -(ROOM_W / 2 - SK_D / 2), 0,                    Math.PI / 2 ],  // left   (-X)
     [ROOM_D - SK_D * 2,   SK_D,  (ROOM_W / 2 - SK_D / 2), 0,                    Math.PI / 2 ],  // right  (+X)
   ];
 
@@ -118,7 +117,7 @@ export function createRoom(scene, texMap) {
     group.add(mesh);
   }
 
-  // ── Window on left wall (x = -ROOM_W/2) ────────────────────────────────
+  // -- Window on left wall (x = -ROOM_W/2) ---
   const WIN_W  = 4.4;   // frame opening width  (Z-axis)
   const WIN_H  = 2.4;   // frame opening height (Y-axis)
   const WIN_CY = 3.4;   // center height above floor
@@ -128,7 +127,7 @@ export function createRoom(scene, texMap) {
 
   // Left wall rebuilt as 4 planes with a window-sized hole so scene.background
   // (the night sky) shows through naturally with real parallax.
-  const FT      = 0.06;   // frame bar thickness — also used for hole sizing below
+  const FT      = 0.06;   // frame bar thickness - also used for hole sizing below
   const HOLE_W  = WIN_W + FT * 2 + 0.04;   // hole slightly wider than outer frame
   const HOLE_H  = WIN_H + FT * 2 + 0.04;
   const zL = WIN_CZ - HOLE_W / 2;           // hole left  Z edge
@@ -155,7 +154,7 @@ export function createRoom(scene, texMap) {
     group.add(m);
   });
 
-  // ── Window reveal — 4 inner faces of the wall tunnel ────────────────────
+  // -- Window reveal - 4 inner faces of the wall tunnel ---
   const REVEAL_D = 0.22;  // wall thickness shown (depth of tunnel in X)
   const revealMat = leftWallMat.clone();
   revealMat.side = THREE.DoubleSide;
@@ -176,7 +175,7 @@ export function createRoom(scene, texMap) {
     group.add(m);
   });
 
-  // Glass pane — MeshPhysicalMaterial for Fresnel reflections via scene.environment
+  // Glass pane - MeshPhysicalMaterial for Fresnel reflections via scene.environment
   const glassMat = new THREE.MeshPhysicalMaterial({
     color:           0xaaccee,
     transparent:     true,
@@ -217,14 +216,14 @@ export function createRoom(scene, texMap) {
     group.add(m);
   });
 
-  // Diffuse moonlight coming through the window — a justified cool wash over the
-  // window side of the room (boosted now that the lamp no longer floods the room).
+  // Diffuse moonlight through the window - a cool wash over the window side of
+  // the room.
   const moonLight = new THREE.PointLight(0x8899cc, 0.12, 0, 0);
   moonLight.position.set(WALL_X + 0.6, WIN_CY + 0.2, WIN_CZ);
   group.add(moonLight);
 
-  // ── Door on right wall (x = +ROOM_W/2) ────────────────────────────────
-  const DOOR_CZ = 1.5;   // centre Z — mirrors the window on the opposite wall
+  // -- Door on right wall (x = +ROOM_W/2) ---
+  const DOOR_CZ = 1.5;   // centre Z - mirrors the window on the opposite wall
   const RIGHT_X = ROOM_W / 2;
 
   const doorLoader = new GLTFLoader();
@@ -234,8 +233,8 @@ export function createRoom(scene, texMap) {
     const box  = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
 
-    const TARGET_H = 4.4;          // height in scene units (~4.4 m — fits the room)
-    const TARGET_W = TARGET_H / 1.8; // door ratio: ~1.8:1 height-to-width ≈ 2.4 units wide
+    const TARGET_H = 4.4;          // height in scene units (~4.4 m - fits the room)
+    const TARGET_W = TARGET_H / 1.8; // door ratio: ~1.8:1 height-to-width ~ 2.4 units wide
 
     // Scale height uniformly, then independently widen the horizontal axis
     // (local X is the door's width axis for a standard glTF door export)
@@ -281,7 +280,7 @@ export function createRoom(scene, texMap) {
   return { group };
 }
 
-// ─── Pool Table ───────────────────────────────────────────────────────────────
+// --- Pool Table ---
 /**
  * Creates the pool table: playing surface (felt), 4 surrounding rail/cushion
  * sections (wood), 6 pocket holes, and 4 legs.
@@ -295,14 +294,14 @@ export function createTable(scene, texMap) {
   const group = new THREE.Group();
   group.name  = 'table';
 
-  // ── Felt playing surface ──────────────────────────────────────────────
+  // -- Felt playing surface ---
   const feltMat = new THREE.MeshStandardMaterial({
     map:          texMap.felt.map,
     normalMap:    texMap.felt.normalMap,
     roughnessMap: texMap.felt.roughnessMap,
     roughness:    0.85,
     metalness:    0.0,
-    normalScale:  new THREE.Vector2(0.15, 0.15), // TUNE: 0.05=barely visible · 0.15=subtle · 0.4+=grid returns
+    normalScale:  new THREE.Vector2(0.15, 0.15), // TUNE: 0.05=barely visible ,  0.15=subtle ,  0.4+=grid returns
   });
 
   const feltGeo     = new THREE.PlaneGeometry(TABLE_W, TABLE_H);
@@ -313,7 +312,7 @@ export function createTable(scene, texMap) {
   surfaceMesh.name = 'felt';
   group.add(surfaceMesh);
 
-  // ── Table body (dark wood box under the felt) ─────────────────────────
+  // -- Table body (dark wood box under the felt) ---
   const bodyMat = new THREE.MeshStandardMaterial({
     map:          texMap.wood.map,
     normalMap:    texMap.wood.normalMap,
@@ -324,23 +323,22 @@ export function createTable(scene, texMap) {
 
   const bodyGeo  = new THREE.BoxGeometry(TABLE_W + RAIL_W * 2, 0.08, TABLE_H + RAIL_W * 2);
   const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
-  // Lowered by extra 0.004 so top face sits at TABLE_SURFACE_Y - 0.004, not TABLE_SURFACE_Y.
-  // This breaks the coplanarity with the felt plane without moving the felt (which would
-  // embed the balls 2mm into the felt and corrupt the shadow map under each ball).
+  // Sit the body just below the felt so its top face isn't coplanar with the
+  // playing surface - avoids z-fighting and shadow artifacts under the balls.
   bodyMesh.position.set(0, TABLE_SURFACE_Y - 0.044, 0);
   bodyMesh.castShadow    = true;
   bodyMesh.receiveShadow = true;
   bodyMesh.name = 'tableBody';
   group.add(bodyMesh);
 
-  // ── Cushion rails (4 sections — skip corners for pocket openings) ─────
+  // -- Cushion rails (4 sections - skip corners for pocket openings) ---
   _buildRails(group, bodyMat);
 
-  // ── Pocket holes (depth cylinders + corner/side structure) ──────────
+  // -- Pocket holes (depth cylinders + corner/side structure) ---
   _buildPockets(group, bodyMat);
 
 
-  // ── Legs — turned wood profile (LatheGeometry) ───────────────────────
+  // -- Legs - turned wood profile (LatheGeometry) ---
   const legMat = new THREE.MeshStandardMaterial({
     map:          texMap.leg.map,
     normalMap:    texMap.leg.normalMap,
@@ -349,10 +347,10 @@ export function createTable(scene, texMap) {
     metalness:         0.05,
   });
 
-  // Classic billiard-table turned leg: wide foot pad → tapered ankle → straight
-  // shaft → decorative upper swell → flared capital connecting to frame apron.
+  // Classic billiard-table turned leg: wide foot pad -> tapered ankle -> straight
+  // shaft -> decorative upper swell -> flared capital connecting to frame apron.
   const legProfile = [
-    new THREE.Vector2(0.136, 0.000),  // foot pad — widest point at floor
+    new THREE.Vector2(0.136, 0.000),  // foot pad - widest point at floor
     new THREE.Vector2(0.120, 0.028),  // foot taper up
     new THREE.Vector2(0.068, 0.075),  // ankle
     new THREE.Vector2(0.057, 0.160),  // lower shaft
@@ -361,7 +359,7 @@ export function createTable(scene, texMap) {
     new THREE.Vector2(0.078, 0.590),  // decorative bead
     new THREE.Vector2(0.064, 0.630),  // neck
     new THREE.Vector2(0.109, 0.690),  // capital flare
-    new THREE.Vector2(0.120, 0.720),  // capital top — meets frame
+    new THREE.Vector2(0.120, 0.720),  // capital top - meets frame
   ];
 
   const legGeo = new THREE.LatheGeometry(legProfile, 20);
@@ -383,7 +381,7 @@ export function createTable(scene, texMap) {
   return { group, surfaceMesh };
 }
 
-// ─── Rail builder ─────────────────────────────────────────────────────────────
+// --- Rail builder ---
 
 function _buildRails(group, mat) {
   const RH  = RAIL_H;
@@ -419,7 +417,7 @@ function _buildRails(group, mat) {
   addRail( (HW + RW / 2), TY, 0, RW, RH, shortLen);
 }
 
-// ─── Pocket helpers ───────────────────────────────────────────────────────────
+// --- Pocket helpers ---
 
 function _buildPockets(group, woodMat) {
   const SY             = TABLE_SURFACE_Y;
@@ -433,20 +431,19 @@ function _buildPockets(group, woodMat) {
   });
 
   for (const [px, pz] of POCKET_POSITIONS) {
-    // Visual mouth sits exactly at the physics capture point. The middle
-    // pockets' outward shift into the rail now lives in POCKET_POSITIONS
-    // (physics.js) so the two can never drift apart.
+    // Draw each pocket mouth at its physics capture point (POCKET_POSITIONS in
+    // physics.js) so the hole and the catch zone always line up.
     const vx = px;
     const vz = pz;
 
-    // Dark disc flush with felt — pocket mouth
+    // Dark disc flush with felt - pocket mouth
     const disc = new THREE.Mesh(new THREE.CircleGeometry(HOLE_R, 24), holeMat);
     disc.rotation.x = -Math.PI / 2;
     disc.position.set(vx, SY + 0.001, vz);
     disc.name = 'pocket_disc';
     group.add(disc);
 
-    // Tapered open cylinder — depth illusion when viewed at an angle
+    // Tapered open cylinder - depth illusion when viewed at an angle
     const cyl = new THREE.Mesh(
       new THREE.CylinderGeometry(HOLE_R, HOLE_R * 0.75, DEPTH, 20, 1, true),
       holeMat
@@ -465,7 +462,7 @@ function _buildPockets(group, woodMat) {
   }
 }
 
-// ─── Cue Stick ────────────────────────────────────────────────────────────────
+// --- Cue Stick ---
 
 // Cue dimensions (scene units)
 const CUE_TIP_R   = 0.025;  // tip radius (narrow end)
@@ -487,11 +484,11 @@ export const CUE_CLEAR_R = CUE_GRIP_R + 0.02;
  * Creates the cue stick as a parent-child hierarchy and adds it to the scene.
  *
  * Scene graph:
- *   cueRoot  (Object3D — pivot at cue ball centre; rotate Y to aim)
- *     └─ cueGroup (Object3D — reserved for charge/strike slide along local X)
- *          ├─ tipMesh   (reddish-brown leather tip)
- *          ├─ shaftMesh (blonde tapered shaft)
- *          └─ gripMesh  (dark mahogany grip)
+ *   cueRoot  (Object3D - pivot at cue ball centre; rotate Y to aim)
+ *     \- cueGroup (Object3D - reserved for charge/strike slide along local X)
+ *          |- tipMesh   (reddish-brown leather tip)
+ *          |- shaftMesh (blonde tapered shaft)
+ *          \- gripMesh  (dark mahogany grip)
  *
  * All three sections extend along cueRoot's local +X axis.
  * Tip is just touching the ball surface at X = BALL_RADIUS.
@@ -500,9 +497,9 @@ export const CUE_CLEAR_R = CUE_GRIP_R + 0.02;
  * @returns {{ root: THREE.Object3D, group: THREE.Object3D, tipMesh: THREE.Mesh, shaftMesh: THREE.Mesh, gripMesh: THREE.Mesh }}
  */
 export function createCueStick(scene) {
-  // ── Materials ──
+  // -- Materials --
   const tipMat = new THREE.MeshStandardMaterial({
-    color:     0xcc4400,  // leather tip — reddish-brown
+    color:     0xcc4400,  // leather tip - reddish-brown
     roughness: 0.7,
     metalness: 0.0,
   });
@@ -517,13 +514,13 @@ export function createCueStick(scene) {
     metalness: 0.0,
   });
 
-  // ── Geometries ──
-  // CylinderGeometry is built along local Y; rotation.z = π/2 lays it along X.
+  // -- Geometries --
+  // CylinderGeometry is built along local Y; rotation.z = pi/2 lays it along X.
   const tipGeo   = new THREE.CylinderGeometry(CUE_TIP_R,   CUE_TIP_R,   CUE_TIP_L,   12);
-  const shaftGeo = new THREE.CylinderGeometry(CUE_SHAFT_R, CUE_TIP_R,   CUE_SHAFT_L, 12); // tapers tip→shaft
-  const gripGeo  = new THREE.CylinderGeometry(CUE_GRIP_R,  CUE_SHAFT_R, CUE_GRIP_L,  12); // tapers shaft→grip
+  const shaftGeo = new THREE.CylinderGeometry(CUE_SHAFT_R, CUE_TIP_R,   CUE_SHAFT_L, 12); // tapers tip->shaft
+  const gripGeo  = new THREE.CylinderGeometry(CUE_GRIP_R,  CUE_SHAFT_R, CUE_GRIP_L,  12); // tapers shaft->grip
 
-  // ── Meshes ──
+  // -- Meshes --
   const tipMesh   = new THREE.Mesh(tipGeo,   tipMat);
   const shaftMesh = new THREE.Mesh(shaftGeo, shaftMat);
   const gripMesh  = new THREE.Mesh(gripGeo,  gripMat);
@@ -534,7 +531,7 @@ export function createCueStick(scene) {
   shaftMesh.rotation.z = R90;
   gripMesh.rotation.z  = R90;
 
-  // Position along X — each section's centre offset from origin
+  // Position along X - each section's centre offset from origin
   tipMesh.position.x   = BALL_RADIUS + CUE_TIP_L / 2;
   shaftMesh.position.x = BALL_RADIUS + CUE_TIP_L + CUE_SHAFT_L / 2;
   gripMesh.position.x  = BALL_RADIUS + CUE_TIP_L + CUE_SHAFT_L + CUE_GRIP_L / 2;
@@ -543,7 +540,7 @@ export function createCueStick(scene) {
   shaftMesh.castShadow = true;
   gripMesh.castShadow  = true;
 
-  // ── Hierarchy ──
+  // -- Hierarchy --
   const cueGroup = new THREE.Object3D();
   cueGroup.name  = 'cueGroup';
   cueGroup.add(tipMesh, shaftMesh, gripMesh);
@@ -558,15 +555,10 @@ export function createCueStick(scene) {
   return { root: cueRoot, group: cueGroup, tipMesh, shaftMesh, gripMesh };
 }
 
-// ─── Ball Mesh Factory ────────────────────────────────────────────────────────
-// Assumption: a real billiard ball is two optical layers — a pigmented phenolic
-// resin core under a separate polished lacquer top-coat — so the ball material
-// uses MeshPhysicalMaterial's clearcoat lobe to reproduce that construction
-// instead of sourcing an external high-resolution PBR image set. An image set
-// would fix one texture per physical asset, which doesn't fit a ball whose
-// color and number are chosen per-instance from createBallTex; the clearcoat
-// layer reproduces the polished-resin look on top of that existing per-ball
-// texture pipeline.
+// --- Ball Mesh Factory ---
+// A billiard ball is a pigmented resin core under a polished lacquer coat, so we
+// model it with MeshPhysicalMaterial's clearcoat lobe. Color and number vary per
+// ball, so the diffuse map is generated per-instance by createBallTex.
 /**
  * Creates a pool ball Mesh with MeshPhysicalMaterial.
  * Uses a CanvasTexture for the color/diffuse map and a shared roughness map
@@ -586,16 +578,16 @@ export function createBallMesh(color, number, createBallTex, envMap, roughnessMa
   const mat = new THREE.MeshPhysicalMaterial({
     map:                colorTex,
     roughnessMap:       roughnessMap || null,
-    roughness:          0.15,   // pigmented resin core — glossy, fine scuff variation from roughnessMap
+    roughness:          0.15,   // pigmented resin core - glossy, fine scuff variation from roughnessMap
     metalness:          0.0,    // resin is a dielectric, never metallic
     clearcoat:          1.0,    // full polished lacquer top-coat, as on a real billiard ball
-    clearcoatRoughness: 0.05,   // near-mirror clearcoat — tight, bright specular highlights
+    clearcoatRoughness: 0.05,   // near-mirror clearcoat - tight, bright specular highlights
     envMap:             envMap || null,
     envMapIntensity:    0.8,
   });
 
   // 32x32 segments already keep per-face deviation from a true sphere under a
-  // millimeter at this radius — invisible at any camera distance used in the
+  // millimeter at this radius - invisible at any camera distance used in the
   // scene, so the silhouette reads as perfectly round without spending extra
   // triangles on smoothness that can't be seen.
   const geo  = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
@@ -606,7 +598,7 @@ export function createBallMesh(color, number, createBallTex, envMap, roughnessMa
   return mesh;
 }
 
-// ─── Lamp dimensions (3-shade pool-table light bar, hung on two chains) ──────
+// --- Lamp dimensions (3-shade pool-table light bar, hung on two chains) ---
 const LAMP_CHAIN_L     = 1.0;   // chain length from the ceiling anchor down to the bar
 const LAMP_BAR_LEN     = 7.0;   // horizontal bar length (spans most of the table's long axis)
 const LAMP_BAR_R       = 0.035; // bar radius
@@ -620,18 +612,15 @@ const LAMP_SHADE_R     = 0.38;  // shade dome radius
 const LAMP_TRIM_TUBE   = 0.015; // shade rim trim-ring tube radius
 const LAMP_BULB_R      = 0.09;  // bulb radius (visible inside each shade)
 
-// ─── Lamp ─────────────────────────────────────────────────────────────────────
+// --- Lamp ---
 /**
- * Creates the overhead pool-table light fixture — a horizontal brass bar
- * carrying three green-shaded pendant lamps, suspended from the ceiling on
- * two chains — and adds it to the scene.
+ * Creates the overhead pool-table light fixture: a horizontal brass bar
+ * carrying three green-shaded pendant lamps, hung from the ceiling on two
+ * chains, and adds it to the scene.
  *
- * The two ceiling mounts sit at local (±halfBar, 0, 0) — exactly on the
- * anchor's local X axis (y = z = 0) — so rotating the anchor about X leaves
- * the mounts fixed in place while the chains, bar, and all three shades
- * (which all have nonzero local y) swing together below them as one rigid
- * body. This is what makes the swing visibly pivot right where the chains
- * meet the ceiling, exactly like a real trapeze-style hanging fixture.
+ * The ceiling mounts sit on the anchor's rotation axis (y = z = 0), so rotating
+ * the anchor about X keeps them fixed while everything below swings as one
+ * rigid body, pivoting where the chains meet the ceiling.
  *
  * @param {THREE.Scene} scene
  * @returns {{ anchor: THREE.Group, bulbMeshes: THREE.Mesh[], lights: THREE.PointLight[] }}
@@ -639,9 +628,9 @@ const LAMP_BULB_R      = 0.09;  // bulb radius (visible inside each shade)
 export function createLamp(scene) {
   const anchor = new THREE.Group();
   anchor.name  = 'lampAnchor';
-  anchor.position.set(0, ROOM_H, 0); // pivot at the ceiling — rotating this swings the fixture
+  anchor.position.set(0, ROOM_H, 0); // pivot at the ceiling - rotating this swings the fixture
 
-  // ── Materials ──
+  // -- Materials --
   const goldMat = new THREE.MeshStandardMaterial({
     color:     0xd4af37, // brass/gold hardware
     roughness: 0.3,
@@ -663,7 +652,7 @@ export function createLamp(scene) {
     side:              THREE.DoubleSide,
   });
 
-  // Emissive material — each bulb glows on its own regardless of incoming light.
+  // Emissive material - each bulb glows on its own regardless of incoming light.
   const bulbMat = new THREE.MeshStandardMaterial({
     color:             0xffcc88,
     emissive:          new THREE.Color(0xffaa44),
@@ -675,7 +664,7 @@ export function createLamp(scene) {
   const halfBar = LAMP_BAR_LEN / 2;
   const barY    = -LAMP_CHAIN_L; // bar center, relative to the ceiling anchor
 
-  // ── Ceiling mounts — at y = z = 0, exactly on the anchor's rotation axis ──
+  // -- Ceiling mounts - at y = z = 0, exactly on the anchor's rotation axis --
   const mountGeo = new THREE.CylinderGeometry(LAMP_MOUNT_R, LAMP_MOUNT_R, LAMP_MOUNT_H, 16);
   for (const mx of [-halfBar, halfBar]) {
     const mountMesh = new THREE.Mesh(mountGeo, goldMat);
@@ -684,7 +673,7 @@ export function createLamp(scene) {
     anchor.add(mountMesh);
   }
 
-  // ── Chains — two, one per mount, spanning from the ceiling down to the bar ──
+  // -- Chains - two, one per mount, spanning from the ceiling down to the bar --
   for (const cx of [-halfBar, halfBar]) {
     const chain = _createChainLinks(LAMP_CHAIN_L, goldMat);
     chain.position.set(cx, 0, 0);
@@ -692,7 +681,7 @@ export function createLamp(scene) {
     anchor.add(chain);
   }
 
-  // ── Horizontal bar ──
+  // -- Horizontal bar --
   const barGeo  = new THREE.CylinderGeometry(LAMP_BAR_R, LAMP_BAR_R, LAMP_BAR_LEN, 12);
   const barMesh = new THREE.Mesh(barGeo, goldMat);
   barMesh.rotation.z = Math.PI / 2; // lay the cylinder along X
@@ -700,7 +689,7 @@ export function createLamp(scene) {
   barMesh.name = 'lampBar';
   anchor.add(barMesh);
 
-  // ── Decorative finials at the bar's two ends ──
+  // -- Decorative finials at the bar's two ends --
   const finialGeo = new THREE.SphereGeometry(LAMP_FINIAL_R, 12, 12);
   for (const fx of [-halfBar, halfBar]) {
     const finialMesh = new THREE.Mesh(finialGeo, goldMat);
@@ -709,14 +698,14 @@ export function createLamp(scene) {
     anchor.add(finialMesh);
   }
 
-  // ── Three pendant shades, evenly spaced along the bar ──
+  // -- Three pendant shades, evenly spaced along the bar --
   const shadeXs     = [-(halfBar - LAMP_SHADE_INSET), 0, (halfBar - LAMP_SHADE_INSET)];
   const bulbMeshes  = [];
   const linerMeshes = [];
   const lights      = [];
 
   for (const sx of shadeXs) {
-    // Socket — connects the bar to the shade
+    // Socket - connects the bar to the shade
     const socketGeo  = new THREE.CylinderGeometry(LAMP_SOCKET_R, LAMP_SOCKET_R, LAMP_SOCKET_L, 12);
     const socketMesh = new THREE.Mesh(socketGeo, goldMat);
     socketMesh.position.set(sx, barY - LAMP_SOCKET_L / 2, 0);
@@ -726,7 +715,7 @@ export function createLamp(scene) {
     const domeApexY   = barY - LAMP_SOCKET_L;        // where the dome's rounded top meets the socket
     const shadeCenterY = domeApexY - LAMP_SHADE_R;    // sphere-geometry origin for the hemisphere meshes
 
-    // Outer green dome — upper hemisphere (thetaLength = PI/2), open at the bottom.
+    // Outer green dome - upper hemisphere (thetaLength = PI/2), open at the bottom.
     // It wraps fully around its own bulb on every side except that open rim, so
     // casting a shadow from it blocks its own bulb's light from leaking sideways
     // into the other two shades (see castShadow on the light below).
@@ -736,7 +725,7 @@ export function createLamp(scene) {
     shadeMesh.name = 'lampShade';
     anchor.add(shadeMesh);
 
-    // Inner white liner — slightly smaller, visible from below through the open rim
+    // Inner white liner - slightly smaller, visible from below through the open rim
     const linerGeo  = new THREE.SphereGeometry(LAMP_SHADE_R * 0.92, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2);
     const linerMesh = new THREE.Mesh(linerGeo, shadeInnerMat);
     linerMesh.position.set(sx, shadeCenterY, 0);
@@ -752,7 +741,7 @@ export function createLamp(scene) {
     trimMesh.name = 'lampTrim';
     anchor.add(trimMesh);
 
-    // Bulb — small emissive sphere hanging inside the shade, just above the rim
+    // Bulb - small emissive sphere hanging inside the shade, just above the rim
     const bulbY    = shadeCenterY + LAMP_SHADE_R * 0.3;
     const bulbGeo  = new THREE.SphereGeometry(LAMP_BULB_R, 12, 12);
     const bulbMesh = new THREE.Mesh(bulbGeo, bulbMat);
@@ -761,20 +750,16 @@ export function createLamp(scene) {
     anchor.add(bulbMesh);
     bulbMeshes.push(bulbMesh);
 
-    // ── Light — a SpotLight, NOT a PointLight ──────────────────────────────
-    // A PointLight radiates in every direction: it would spill up onto the
-    // ceiling, out to the walls, and straight into the other two shades,
-    // making the three lamps incoherent. A SpotLight emits ONLY inside a
-    // downward cone, so each lamp lights its own patch of table and nothing
-    // else. The cone half-angle (~40°) sits comfortably inside the shade's
-    // own opening yet is wide enough that the three pools overlap across the
-    // felt — so every ball is lit enough to cast a readable shadow.
+    // Use a SpotLight, not a PointLight: a downward cone lights only this lamp's
+    // patch of table instead of spilling onto the ceiling, walls, and the other
+    // shades. The ~40 deg half-angle keeps the three pools overlapping across the
+    // felt so every ball casts a readable shadow.
     const light = new THREE.SpotLight(
       0xffaa44,        // warm amber
       2.2,             // intensity
       30,              // range
-      Math.PI / 4.5,   // cone half-angle (~40°) — overlapping pools cover the whole felt
-      0.25,            // penumbra — soft edge, but a large fully-lit core
+      Math.PI / 4.5,   // cone half-angle (~40 deg) - overlapping pools cover the whole felt
+      0.25,            // penumbra - soft edge, but a large fully-lit core
       1.5              // decay
     );
     light.position.set(sx, bulbY, 0);
@@ -789,12 +774,12 @@ export function createLamp(scene) {
     light.target = target;
 
     light.castShadow = true;
-    light.shadow.mapSize.set(2048, 2048);   // higher res — the wide cone spreads the map over the whole table
+    light.shadow.mapSize.set(2048, 2048);   // higher res - the wide cone spreads the map over the whole table
     light.shadow.camera.near = 0.5;
-    light.shadow.camera.far  = 12;          // bulb→floor is ~5.6 units; 12 leaves margin
+    light.shadow.camera.far  = 12;          // bulb->floor is ~5.6 units; 12 leaves margin
     light.shadow.bias        = -0.0001;     // avoid self-shadowing acne without detaching the contact shadow
-    light.shadow.normalBias  = 0.0;         // MUST be 0 on the flat felt — any push detaches the ball's contact shadow
-    light.shadow.radius      = 3;           // soft edges; blends the 2–3 overlapping cone shadows into one clean shadow
+    light.shadow.normalBias  = 0.0;         // MUST be 0 on the flat felt - any push detaches the ball's contact shadow
+    light.shadow.radius      = 3;           // soft edges; blends the 2-3 overlapping cone shadows into one clean shadow
     light.userData.onIntensity = light.intensity; // remembered so the lamp toggle can restore it
     anchor.add(light);
     lights.push(light);
@@ -805,8 +790,8 @@ export function createLamp(scene) {
 }
 
 /**
- * Builds a short vertical chain as a stack of alternating ring links — every
- * other link is rotated 90° about Y from its neighbour, so the chain reads
+ * Builds a short vertical chain as a stack of alternating ring links - every
+ * other link is rotated 90 deg about Y from its neighbour, so the chain reads
  * as interlocked rather than as identical stacked rings. Returns a Group
  * spanning from local y = 0 (top, ceiling end) down to y = -length (bottom,
  * bar end); the caller positions the group itself.
@@ -832,7 +817,7 @@ function _createChainLinks(length, mat) {
   return group;
 }
 
-// ─── Floor Lamp (warm accent by the couch) ───────────────────────────────────
+// --- Floor Lamp (warm accent by the couch) ---
 /**
  * A simple standing floor lamp placed in the lounge corner: weighted base, thin
  * pole, a conical shade and an emissive bulb with a warm PointLight inside. It
@@ -846,7 +831,7 @@ export function createFloorLamp(scene) {
   const group = new THREE.Group();
   group.name  = 'floorLamp';
 
-  // Place the lamp to the right of the couch (lounge corner at x≈-7.5), between
+  // Place the lamp to the right of the couch (lounge corner at x~-7.5), between
   // it and the plant (x=-2.0), near the front wall (-Z).
   const LAMP_X = -4.5;
   const LAMP_Z = -7.8;
@@ -880,7 +865,7 @@ export function createFloorLamp(scene) {
   pole.castShadow = true;
   group.add(pole);
 
-  // Shade — open cone (wider at the bottom)
+  // Shade - open cone (wider at the bottom)
   const shade = new THREE.Mesh(new THREE.ConeGeometry(SHADE_R, SHADE_H, 24, 1, true), shadeMat);
   shade.position.y = shadeMidY;
   shade.castShadow = true;
@@ -891,7 +876,7 @@ export function createFloorLamp(scene) {
   bulb.position.y = shadeBaseY + 0.10;
   group.add(bulb);
 
-  // Warm light — no shadow casting (three shadow-casting spotlights already exist).
+  // Warm light - no shadow casting (three shadow-casting spotlights already exist).
   const light = new THREE.PointLight(0xffd9a0, 0.8, 8, 2);
   light.position.y = shadeBaseY + 0.10;
   light.castShadow = true;
@@ -901,12 +886,12 @@ export function createFloorLamp(scene) {
   return { group, light };
 }
 
-// ─── Ceiling Light (toggleable general room light) ───────────────────────────
+// --- Ceiling Light (toggleable general room light) ---
 /**
  * A flush-mount ceiling fixture providing broad, toggleable general-room light.
  * When on it lifts the whole room to a comfortable brightness; when off the room
  * falls back to the dim baseline fill + accent lights for an atmospheric look.
- * The PointLight casts no shadows — it is a soft, even fill, not a focused source.
+ * The PointLight casts no shadows - it is a soft, even fill, not a focused source.
  *
  * @param {THREE.Scene} scene
  * @returns {{ group: THREE.Group, fixture: THREE.Group, light: THREE.PointLight, lensMesh: THREE.Mesh, onIntensity: number }}
@@ -945,12 +930,12 @@ export function createCeilingLight(scene) {
 
   group.add(fixture);
 
-  // Broad warm-neutral fill. distance 60 keeps falloff gentle across the 22×18
+  // Broad warm-neutral fill. distance 60 keeps falloff gentle across the 22x18
   // room so the corners still read.
   const light = new THREE.PointLight(0xfff2e0, 0.9, 60, 1.0);
   light.position.set(0, ROOM_H - 0.3, 0);
   // Cast shadows so the overhead light reads as a real room source. A PointLight
-  // uses a 6-face cube shadow map — far brackets the light (y≈6.7) to the room's
+  // uses a 6-face cube shadow map - far brackets the light (y~6.7) to the room's
   // far floor corners (~16 units); bias/normalBias suppress acne on the felt/floor.
   light.castShadow = true;
   light.shadow.mapSize.width  = 1024;
@@ -966,7 +951,7 @@ export function createCeilingLight(scene) {
   return { group, fixture, light, lensMesh: lens, onIntensity: light.intensity };
 }
 
-// ─── Lounge Corner (couch + coffee table, modeled in Blender) ─────────────────
+// --- Lounge Corner (couch + coffee table, modeled in Blender) ---
 /**
  * Loads the Blender-authored "lounge corner" model (couch + round coffee
  * table, exported as a single .glb with embedded textures) and places it in
@@ -986,7 +971,7 @@ export function createLoungeCorner(scene) {
   loader.load('./blender_assets/lounge_corner.glb', (gltf) => {
     const model = gltf.scene;
 
-    // Normalize scale — target a realistic ~6-unit couch width in scene units.
+    // Normalize scale - target a realistic ~6-unit couch width in scene units.
     const box   = new THREE.Box3().setFromObject(model);
     const size  = box.getSize(new THREE.Vector3());
     const scale = 6.0 / Math.max(size.x, size.z);
@@ -1017,11 +1002,11 @@ export function createLoungeCorner(scene) {
   return { group };
 }
 
-// ─── Wall Painting (single .glb, framed) ──────────────────────────────────────
+// --- Wall Painting (single .glb, framed) ---
 /**
  * Loads the framed painting and hangs it on the front wall (-Z), above the
  * lounge couch. The model is authored lying face-up (thin axis = Y, image
- * normal +Y), so a +90° X rotation stands it up with the image facing +Z
+ * normal +Y), so a +90 deg X rotation stands it up with the image facing +Z
  * (into the room).
  *
  * @param {THREE.Scene} scene
@@ -1050,21 +1035,16 @@ export function createPainting(scene) {
         const mats = Array.isArray(child.material) ? child.material : [child.material];
         const matName = (mats[0]?.name || '').toLowerCase();
 
-        // The model ships a thin "glass" pane (material "Bfx.Mat.glass") sitting
-        // ~1mm in front of the canvas. With no transparency authored it renders
-        // opaque and coplanar with the image. Hide it — serves no purpose here.
+        // Hide the thin glass pane: it has no authored transparency and would
+        // render as an opaque sheet over the canvas.
         if (matName.includes('glass')) {
           child.visible = false;
           return;
         }
 
-        // The canvas image plane (material "Bfx.Painting.img") sits at local
-        // y ≈ 25 µm — essentially coplanar with the frame's backing at y ≈ 0.
-        // That near-zero depth gap makes the depth buffer flip winner per pixel,
-        // producing the uniform grid/moiré. polygonOffset biases the image's
-        // depth toward the camera so it always wins cleanly over the backing,
-        // without moving the geometry (a positional nudge can hide it behind
-        // the backing depending on orientation).
+        // The canvas is nearly coplanar with the frame backing, which z-fights
+        // into a moire grid. Bias its depth toward the camera with polygonOffset
+        // so it always draws cleanly on top, without moving the geometry.
         if (matName.includes('painting') || matName.includes('img')) {
           for (const m of mats) {
             m.polygonOffset       = true;
@@ -1079,9 +1059,7 @@ export function createPainting(scene) {
       }
     });
 
-    // Stand it up and face the room. rotation.set(π/2, 0, π) produces the
-    // same rotation matrix as the original two-step (Rx then world-Ry),
-    // but as a single clean Euler assignment with no floating-point drift.
+    // Stand the painting up and turn its face into the room.
     model.rotation.set(Math.PI / 2, 0, Math.PI);
     const mounted = new THREE.Box3().setFromObject(model);
     const depth   = mounted.getSize(new THREE.Vector3()).z;
@@ -1096,11 +1074,11 @@ export function createPainting(scene) {
   return { group };
 }
 
-// ─── Dartboard (wall-mounted, multi-file glTF from Poly Haven) ────────────────
+// --- Dartboard (wall-mounted, multi-file glTF from Poly Haven) ---
 /**
  * Loads the dartboard glTF and hangs it on the back wall (+Z), centred,
  * facing into the room. The model's native orientation has the playing face
- * in its local XY plane with the thin (mounting) axis along +Z, so a 180° Y
+ * in its local XY plane with the thin (mounting) axis along +Z, so a 180 deg Y
  * rotation turns the face inward toward the room.
  *
  * @param {THREE.Scene} scene
@@ -1111,7 +1089,7 @@ export function createDartboard(scene) {
   group.name  = 'dartboard';
 
   const DART_DIAM = 1.5;   // target board diameter in scene units
-  const DART_CY   = 4;   // centre (bullseye) height — aligns with the window centre
+  const DART_CY   = 4;   // centre (bullseye) height - aligns with the window centre
   const WALL_Z    = ROOM_D / 2;
 
   const loader = new GLTFLoader();
@@ -1129,7 +1107,7 @@ export function createDartboard(scene) {
       }
     });
 
-    // Face points +Z natively → rotate 180° so it faces -Z (into the room),
+    // Face points +Z natively -> rotate 180 deg so it faces -Z (into the room),
     // then push the board flush against the back wall.
     model.rotation.y = Math.PI;
     const mounted = new THREE.Box3().setFromObject(model);
@@ -1145,11 +1123,11 @@ export function createDartboard(scene) {
   return { group };
 }
 
-// ─── Vintage Cabinet (multi-file glTF from Poly Haven) ────────────────────────
+// --- Vintage Cabinet (multi-file glTF from Poly Haven) ---
 /**
  * Loads the vintage cabinet and stands it against the front wall (-Z), to the
  * right of the lounge corner. The model is authored standing on its base with
- * its doors facing +Z, so placing it on the -Z wall needs no rotation — the
+ * its doors facing +Z, so placing it on the -Z wall needs no rotation - the
  * front already faces into the room. Its back is pushed flush to the wall.
  *
  * @param {THREE.Scene} scene
@@ -1192,7 +1170,7 @@ export function createCabinet(scene) {
   return { group };
 }
 
-// ─── Metal Stools (multi-file glTF from Poly Haven) ───────────────────────────
+// --- Metal Stools (multi-file glTF from Poly Haven) ---
 /**
  * Loads the metal stool once and lines four of them up along the dartboard
  * wall (+Z), evenly spaced and set a little in front of the wall. The model
@@ -1208,7 +1186,7 @@ export function createStools(scene) {
 
   const TARGET_H = 2;
   const BASE_Z   = ROOM_D / 2;  // back wall (+Z)
-  // Each stool: [x, distanceFromWall] — varied depths so they look casually placed
+  // Each stool: [x, distanceFromWall] - varied depths so they look casually placed
   const STOOLS = [
     [-4.5,  2.8],
     [-1.2,  1.6],
@@ -1229,7 +1207,7 @@ export function createStools(scene) {
       if (child.isMesh && child.material) {
         child.castShadow    = true;
         child.receiveShadow = true;
-        // Metal reads poorly in the dim far corner — boost environment response.
+        // Metal reads poorly in the dim far corner - boost environment response.
         for (const mat of Array.isArray(child.material) ? child.material : [child.material]) {
           mat.envMapIntensity = 2.0;
           mat.needsUpdate     = true;
@@ -1254,10 +1232,10 @@ export function createStools(scene) {
   return { group };
 }
 
-// ─── Fancy Picture Frame (back/stool wall, +Z) ────────────────────────────────
+// --- Fancy Picture Frame (back/stool wall, +Z) ---
 /**
  * Loads the fancy picture frame and hangs it on the back wall (+Z), centered
- * above the stools. The model's face is in the XY plane facing +Z, so a 180°
+ * above the stools. The model's face is in the XY plane facing +Z, so a 180 deg
  * Y rotation makes it face -Z into the room.
  *
  * @param {THREE.Scene} scene
@@ -1284,7 +1262,7 @@ export function createFrame2(scene) {
       if (child.isMesh) child.castShadow = true;
     });
 
-    // Face points +Z natively → rotate 180° so it faces -Z (into the room)
+    // Face points +Z natively -> rotate 180 deg so it faces -Z (into the room)
     model.rotation.y = Math.PI;
     const mounted = new THREE.Box3().setFromObject(model);
     // mounted.max.z is the wall-facing side; push it flush to the back wall
@@ -1299,7 +1277,7 @@ export function createFrame2(scene) {
   return { group };
 }
 
-// ─── Potted Plant (front wall, between couch and cabinet) ─────────────────────
+// --- Potted Plant (front wall, between couch and cabinet) ---
 /**
  * Loads the potted plant and places it on the floor against the front wall
  * (-Z), between the lounge corner and the vintage cabinet. The model is
@@ -1313,7 +1291,7 @@ export function createPlant(scene) {
   group.name  = 'plant';
 
   const TARGET_H = 3;          // plant height in scene units
-  const PLANT_X  = -2.0;         // between couch (x≈-7.5) and cabinet (x=3)
+  const PLANT_X  = -2.0;         // between couch (x~-7.5) and cabinet (x=3)
   const WALL_Z   = -ROOM_D / 2;  // front wall -Z
 
   const loader = new GLTFLoader();
@@ -1345,11 +1323,11 @@ export function createPlant(scene) {
   return { group };
 }
 
-// ─── Coat Rack (back/stool wall, +Z) ─────────────────────────────────────────
+// --- Coat Rack (back/stool wall, +Z) ---
 /**
  * Loads the wall-mounted coat rack and fixes it to the back wall (+Z), to the
  * left of the fancy picture frame. The model is authored lying flat: back plate
- * at y=0, pegs pointing +Y. Rx(-π/2) maps +Y → -Z so the pegs project into
+ * at y=0, pegs pointing +Y. Rx(-pi/2) maps +Y -> -Z so the pegs project into
  * the room and the back plate faces the wall.
  *
  * @param {THREE.Scene} scene
@@ -1361,7 +1339,7 @@ export function createCoatRack(scene) {
 
   const TARGET_W = 2.5;         // rack width in scene units
   const RACK_X   = 8;        // left of frame2 (frame2 centre at x=0, half-width 1.5)
-  const RACK_CY  = 4.5;         // centre height — matches the painting
+  const RACK_CY  = 4.5;         // centre height - matches the painting
   const WALL_Z   = ROOM_D / 2;  // back wall +Z
 
   const loader = new GLTFLoader();
@@ -1376,7 +1354,7 @@ export function createCoatRack(scene) {
       if (child.isMesh) child.castShadow = true;
     });
 
-    // Rx(-π/2): native +Y → world -Z  →  pegs stick into room, back plate faces wall
+    // Rx(-pi/2): native +Y -> world -Z  ->  pegs stick into room, back plate faces wall
     proto.rotation.x = -Math.PI / 2;
     const mounted = new THREE.Box3().setFromObject(proto);
     const posZ = WALL_Z - mounted.max.z - 0.01;
@@ -1395,7 +1373,7 @@ export function createCoatRack(scene) {
   return { group };
 }
 
-// ─── Potted Plant 2 (front wall, right of cabinet) ────────────────────────────
+// --- Potted Plant 2 (front wall, right of cabinet) ---
 /**
  * Loads potted_plant_02 and places it on the floor against the front wall (-Z),
  * to the right of the vintage cabinet. Y-up upright model, no rotation needed.
@@ -1439,14 +1417,14 @@ export function createPlant2(scene) {
   return { group };
 }
 
-// ─── Painting 3 (right wall, +X, beside the door) ────────────────────────────
+// --- Painting 3 (right wall, +X, beside the door) ---
 /**
  * Loads painting3.glb and hangs it on the right wall (+X), on the -Z side of
  * the door. The frame is authored lying flat in the XZ plane with Y as the
  * thin depth axis and the face toward low-Y values.
  *
- * rotation.set(π/2, -π/2, π) maps native-Y → world +X (back at wall, face
- * into room), native-Z → world +Y (height vertical), native-X → world +Z
+ * rotation.set(pi/2, -pi/2, pi) maps native-Y -> world +X (back at wall, face
+ * into room), native-Z -> world +Y (height vertical), native-X -> world +Z
  * (width horizontal).
  *
  * @param {THREE.Scene} scene
@@ -1458,7 +1436,7 @@ export function createPainting3(scene) {
 
   const TARGET_W  = 2.5;         // frame width in scene units
   const PAINT3_CY = 4.2;         // centre height
-  const PAINT3_Z  = -4.0;        // Z on the right wall (-Z side, clear of door at z≈1.5)
+  const PAINT3_Z  = -4.0;        // Z on the right wall (-Z side, clear of door at z~1.5)
   const WALL_X    = ROOM_W / 2;  // right wall +X
 
   const loader = new GLTFLoader();
@@ -1481,14 +1459,14 @@ export function createPainting3(scene) {
         child.material.polygonOffset       = true;
         child.material.polygonOffsetFactor = -1;
         child.material.polygonOffsetUnits  = -1;
-        // Grow the canvas (±0.252 × ±0.345) out to the frame's inner edge so the
+        // Grow the canvas (+/-0.252 x +/-0.345) out to the frame's inner edge so the
         // image fills the opening instead of leaving a gap. X,Z in-plane; Y thin.
         child.scale.set(1.09, 1, 1.09);
       } else if (!n.includes('frame')) {
-        // Backing → black mount. Native backing (±0.2496 × ±0.3437) is smaller
+        // Backing -> black mount. Native backing (+/-0.2496 x +/-0.3437) is smaller
         // than the painting, so the wall shows in the gap up to the frame's
         // inner edge. Grow it in-plane (X,Z; Y is thickness) to tuck under the
-        // frame (outer ±0.2745 × ±0.3801) and block the wall behind the canvas.
+        // frame (outer +/-0.2745 x +/-0.3801) and block the wall behind the canvas.
         child.material = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 1, metalness: 0 });
         child.scale.set(1.09, 1, 1.09);
       }
@@ -1508,7 +1486,7 @@ export function createPainting3(scene) {
   return { group };
 }
 
-// ─── Potted Plant 2 — Corner (back-right corner, right of door) ───────────────
+// --- Potted Plant 2 - Corner (back-right corner, right of door) ---
 export function createPlant2Corner(scene) {
   const group = new THREE.Group();
   group.name  = 'plant2corner';

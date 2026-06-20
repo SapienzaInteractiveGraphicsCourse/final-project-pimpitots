@@ -1,8 +1,8 @@
 /**
  * physics.js
- * ─────────────────────────────────────────────────────────────────────────────
+ * ---
  * Responsibility: Pure-JS physics simulation for the pool game.
- * No Three.js dependency — operates only on plain ball-state objects so that
+ * No Three.js dependency - operates only on plain ball-state objects so that
  * the physics step is decoupled from the renderer.
  *
  * Ball state object shape (defined/owned by main.js, mutated here):
@@ -13,23 +13,23 @@
  *   BALL_RADIUS                  - pool ball radius in scene units
  *   POCKET_RADIUS                - pocket capture radius
  *   POCKET_POSITIONS             - [x, z][] for the 6 pocket centres
- *   stepPhysics(balls, dt)       → String[]  IDs of newly-pocketed balls this step
- *   isAllStopped(balls)          → Boolean   true once every ball's velocity is exactly zero
- *   isReadyForNextShot(balls)    → Boolean   true once every ball is below the perceptual
+ *   stepPhysics(balls, dt)       -> String[]  IDs of newly-pocketed balls this step
+ *   isAllStopped(balls)          -> Boolean   true once every ball's velocity is exactly zero
+ *   isReadyForNextShot(balls)    -> Boolean   true once every ball is below the perceptual
  *                                             "looks stopped" floor (looser/earlier than
  *                                             isAllStopped)
- *   snapToRest(balls)            → void      zeroes vx/vz on every non-pocketed ball; call
+ *   snapToRest(balls)            -> void      zeroes vx/vz on every non-pocketed ball; call
  *                                             once isReadyForNextShot is true so no residual
  *                                             velocity is left for per-frame rotation/position
  *                                             updates to keep consuming after physics stepping
  *                                             stops
- *   randomizeBalls(numColored)   → {x,z}[] pos[0]=cueBall, pos[1..]=colored
+ *   randomizeBalls(numColored)   -> {x,z}[] pos[0]=cueBall, pos[1..]=colored
  *
  * Coordinate system: XZ plane (Y is up, handled by main.js).
- * ─────────────────────────────────────────────────────────────────────────────
+ * ---
  */
 
-// ─── Tunable Constants ────────────────────────────────────────────────────────
+// --- Tunable Constants ---
 export const TABLE_W       = 9.0;   // playing surface long axis  (X)
 export const TABLE_H       = 4.5;   // playing surface short axis (Z)
 export const BALL_RADIUS   = 0.18;  // pool ball radius in scene units
@@ -40,35 +40,20 @@ const RESTITUTION_CU  = 0.72;         // ball-cushion coefficient of restitution
 const RESTITUTION_BB  = 0.96;         // ball-ball   coefficient of restitution
 const MIN_SPEED_SQ    = 0.00015 * 0.00015; // squared speed below which ball is considered stopped
 
-// Speed (and its square) at which a ball's on-screen motion is considered
-// "settled enough" for gameplay purposes — i.e. imperceptible to a player
-// watching the table — even though MIN_SPEED_SQ above hasn't snapped it to
-// an exact zero yet. Deliberately looser than MIN_SPEED_SQ: friction decays
-// velocity geometrically (see stepPhysics()'s frictionFactor), so it
-// asymptotically approaches — but takes several extra seconds to actually
-// cross — the tiny MIN_SPEED_SQ floor. Gating the next shot on that literal
-// zero, rather than on "can the player even tell it's still moving", adds
-// several seconds of dead time to every shot for no visible benefit.
-//
-// Derivation: the closest the gameplay camera ever gets to a ball is the
-// player-POV camera (camera1 in main.js) — roughly 4.78 units away
-// (combining CAM_DIST_BEHIND=4.5 and CAM_HEIGHT_POV=1.6) with a 62° vertical
-// FOV, giving a ~5.74-unit-tall view frustum at that distance. On a
-// 1080px-tall viewport that's ~188px per unit. Capping apparent motion at
-// 0.5px/frame (60fps → 30px/s) works out to ~0.16 units/s; rounded down to
-// 0.15 for a small margin. Re-tune by playtest if balls ever look like they
-// "stop" while still visibly creeping, or there's a felt wait after they
-// already look stopped.
+// Speed below which a ball looks stopped to the player, even though friction
+// hasn't decayed it to MIN_SPEED_SQ yet. Gating the next shot on this, rather
+// than on an exact zero, avoids a few seconds of dead time after every shot.
+// Tuned by playtest; lower it if balls look stopped while still creeping.
 const READY_SPEED     = 0.15;
 const READY_SPEED_SQ  = READY_SPEED * READY_SPEED;
 
-// Cushion inner edges — ball CENTER must stay inside these
+// Cushion inner edges - ball CENTER must stay inside these
 const CUSHION_MIN_X = -TABLE_W / 2 + BALL_RADIUS + 0.02; // tiny extra gap so ball doesn't clip cushion geometry
 const CUSHION_MAX_X =  TABLE_W / 2 - BALL_RADIUS - 0.02;
 const CUSHION_MIN_Z = -TABLE_H / 2 + BALL_RADIUS + 0.02;
 const CUSHION_MAX_Z =  TABLE_H / 2 - BALL_RADIUS - 0.02;
 
-// 6 pocket centres [x, z] — 4 corners + 2 side midpoints
+// 6 pocket centres [x, z] - 4 corners + 2 side midpoints
 export const POCKET_POSITIONS = [
   [-TABLE_W / 2 + 0.22, -TABLE_H / 2 + 0.22],  // front-left
   [ TABLE_W / 2 - 0.22, -TABLE_H / 2 + 0.22],  // front-right
@@ -83,7 +68,7 @@ export const POCKET_POSITIONS = [
 const POCKET_EXCLUSION_R = POCKET_RADIUS * 1.6;
 const POCKET_EXCLUSION_R2 = POCKET_EXCLUSION_R * POCKET_EXCLUSION_R;
 
-// ─── Helper: squared distance from ball to a pocket ──────────────────────────
+// --- Helper: squared distance from ball to a pocket ---
 /**
  * Returns true if the ball center is inside any pocket's capture zone.
  * @param {{ x: number, z: number }} ball
@@ -127,7 +112,7 @@ function _nearPocketOpening(ball) {
   return false;
 }
 
-// ─── Cushion Collision ────────────────────────────────────────────────────────
+// --- Cushion Collision ---
 /**
  * Reflects ball velocity off a rectangular cushion boundary and clamps position.
  * Skips cushion check near pocket openings so balls can fall in naturally.
@@ -138,7 +123,7 @@ function _resolveCushion(ball, onCollision) {
 
   let hit = false;
 
-  // ── X-axis cushions ──
+  // -- X-axis cushions --
   if (ball.x < CUSHION_MIN_X) {
     ball.x  = CUSHION_MIN_X;
     ball.vx = Math.abs(ball.vx) * RESTITUTION_CU;
@@ -149,7 +134,7 @@ function _resolveCushion(ball, onCollision) {
     hit = true;
   }
 
-  // ── Z-axis cushions ──
+  // -- Z-axis cushions --
   if (ball.z < CUSHION_MIN_Z) {
     ball.z  = CUSHION_MIN_Z;
     ball.vz = Math.abs(ball.vz) * RESTITUTION_CU;
@@ -166,7 +151,7 @@ function _resolveCushion(ball, onCollision) {
   }
 }
 
-// ─── Ball-Ball Collision ──────────────────────────────────────────────────────
+// --- Ball-Ball Collision ---
 /**
  * Resolves elastic collision between two balls of equal mass using the
  * impulse method with a coefficient of restitution.
@@ -183,12 +168,12 @@ function _resolveBallBall(a, b, onCollision) {
   if (dist2 >= minD * minD || dist2 < 1e-8) return; // no overlap or degenerate
 
   const dist = Math.sqrt(dist2);
-  const nx = dx / dist; // collision normal, pointing from a → b
+  const nx = dx / dist; // collision normal, pointing from a -> b
   const nz = dz / dist;
 
-  // Positional correction — always push overlapping balls apart, even if
+  // Positional correction - always push overlapping balls apart, even if
   // they're not approaching (e.g. a prior collision left them penetrating
-  // and friction has since brought them to rest — without this they'd stay
+  // and friction has since brought them to rest - without this they'd stay
   // stuck intersecting forever).
   const overlap = (minD - dist) * 0.5;
   a.x -= nx * overlap;
@@ -201,7 +186,7 @@ function _resolveBallBall(a, b, onCollision) {
   const dvz    = a.vz - b.vz;
   const vRel_n = dvx * nx + dvz * nz;
 
-  if (vRel_n <= 0) return; // balls already separating — skip velocity impulse
+  if (vRel_n <= 0) return; // balls already separating - skip velocity impulse
 
   // Impulse scalar for equal-mass 1D collision with restitution:
   //   j = (1 + e) * v_rel_n / (1/m_a + 1/m_b) = (1 + e) * v_rel_n / 2  (unit mass)
@@ -215,7 +200,7 @@ function _resolveBallBall(a, b, onCollision) {
   if (onCollision) onCollision(vRel_n);
 }
 
-// ─── Main Physics Step ────────────────────────────────────────────────────────
+// --- Main Physics Step ---
 /**
  * Advances the physics simulation by one time step dt (seconds).
  * Integrates velocities, applies friction, resolves ball-ball and
@@ -226,11 +211,11 @@ function _resolveBallBall(a, b, onCollision) {
  * @returns {Array} subset of balls that were newly pocketed this step
  */
 export function stepPhysics(balls, dt, onBallBall, onCushion) {
-  // Frame-rate–independent friction factor
+  // Frame-rate-independent friction factor
   // FRICTION_60FPS^(dt*60) gives consistent feel regardless of frame rate.
   const frictionFactor = Math.pow(FRICTION_60FPS, dt * 60);
 
-  // ── 1. Integrate positions, apply friction ──
+  // -- 1. Integrate positions, apply friction --
   for (const ball of balls) {
     if (ball.pocketed) continue;
 
@@ -248,7 +233,7 @@ export function stepPhysics(balls, dt, onBallBall, onCushion) {
     }
   }
 
-  // ── 2. Ball-ball collisions (O(n²), fine for ≤16 balls) ──
+  // -- 2. Ball-ball collisions (O(n^2), fine for <=16 balls) --
   for (let i = 0; i < balls.length - 1; i++) {
     if (balls[i].pocketed) continue;
     for (let j = i + 1; j < balls.length; j++) {
@@ -258,12 +243,12 @@ export function stepPhysics(balls, dt, onBallBall, onCushion) {
     }
   }
 
-  // ── 3. Cushion collisions ──
+  // -- 3. Cushion collisions --
   for (const ball of balls) {
     if (!ball.pocketed) _resolveCushion(ball, onCushion);
   }
 
-  // ── 4. Pocket detection ──
+  // -- 4. Pocket detection --
   const newlyPocketed = [];
   for (const ball of balls) {
     if (!ball.pocketed && _isInPocket(ball)) {
@@ -277,7 +262,7 @@ export function stepPhysics(balls, dt, onBallBall, onCushion) {
   return newlyPocketed;
 }
 
-// ─── Utility: Stopped Check ───────────────────────────────────────────────────
+// --- Utility: Stopped Check ---
 /**
  * Returns true when every non-pocketed ball has zero velocity.
  * @param {Array<{vx, vz, pocketed}>} balls
@@ -291,11 +276,11 @@ export function isAllStopped(balls) {
   return true;
 }
 
-// ─── Utility: Ready-For-Next-Shot Check ──────────────────────────────────────
+// --- Utility: Ready-For-Next-Shot Check ---
 /**
  * Returns true once every non-pocketed ball's speed has dropped below the
  * perceptual "looks stopped" floor (READY_SPEED_SQ). Looser than
- * isAllStopped() by design — see the comment on READY_SPEED_SQ above — so
+ * isAllStopped() by design - see the comment on READY_SPEED_SQ above - so
  * the gameplay state machine can re-enable the next shot as soon as the
  * table visibly looks at rest, instead of waiting for every ball's velocity
  * to decay all the way to an exact zero.
@@ -311,22 +296,14 @@ export function isReadyForNextShot(balls) {
   return true;
 }
 
-// ─── Utility: Snap To Rest ────────────────────────────────────────────────────
+// --- Utility: Snap To Rest ---
 /**
- * Zeroes vx/vz on every non-pocketed ball. Call once isReadyForNextShot(balls)
- * returns true, at the moment the gameplay state machine transitions out of
- * ROLLING.
+ * Zeroes vx/vz on every non-pocketed ball. Call when leaving the ROLLING state.
  *
- * Why this is needed: isReadyForNextShot uses a perceptual threshold
- * (READY_SPEED_SQ) looser than the exact-zero floor MIN_SPEED_SQ snaps to
- * inside stepPhysics(), so a ball can still carry a small non-zero vx/vz at
- * the moment the transition fires. Once gameplay leaves the ROLLING/STRIKING
- * states, stepPhysics() stops being called, so that residual velocity is
- * never decayed any further — but it still drives the per-frame rolling
- * rotation in main.js, which reads vx/vz unconditionally every frame
- * regardless of game state. Left un-zeroed, that frozen residual speed would
- * make the ball spin in place forever. Calling this once at the transition
- * hard-clears it, matching the end state isAllStopped() would have produced.
+ * isReadyForNextShot() can return true while a ball still carries a tiny
+ * velocity. Since physics stops stepping once we leave ROLLING, that residual
+ * would never decay, yet it would keep driving the rolling rotation in main.js
+ * and spin the ball in place forever. Clearing it here prevents that.
  * @param {Array<{vx, vz, pocketed}>} balls
  */
 export function snapToRest(balls) {
@@ -337,7 +314,7 @@ export function snapToRest(balls) {
   }
 }
 
-// ─── Random Ball Placement ────────────────────────────────────────────────────
+// --- Random Ball Placement ---
 /**
  * Generates valid non-overlapping start positions.
  * positions[0] = cue ball (positive-Z / player half).
@@ -383,7 +360,7 @@ export function randomizeBalls(numColored) {
       placed.push(pos);
       return pos;
     }
-    // Fallback — extremely rare
+    // Fallback - extremely rare
     const pos = { x: (xMin + xMax) / 2, z: (zMin + zMax) / 2 };
     placed.push(pos);
     return pos;
