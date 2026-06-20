@@ -1,7 +1,6 @@
 # 3D Pool Game - Complete Documentation
 
-Single document in two macro-sections: **Game Presentation** (for the end user) and **Technical Report** (for developers). All content is derived exclusively from a direct reading of the code present in the `final-project-pimpitots` folder. Wherever a required aspect is not implemented in the code, this is stated explicitly.
-
+Single document in two macro-sections: **Game Presentation** (for the end user) and **Technical Report** (for developers). 
 ---
 
 ## Table of Contents
