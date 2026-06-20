@@ -67,7 +67,10 @@ export function createRoom(scene, texMap) {
   const invisMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false });
   const roomGeo  = new THREE.BoxGeometry(ROOM_W, ROOM_H, ROOM_D);
   // BoxGeometry face order: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z
-  const roomMesh = new THREE.Mesh(roomGeo, [wallMat, invisMat, wallMat, wallMat, wallMat, wallMat]);
+  // Face 1 (-X) is invisible for the window; face 2 (+Y, ceiling) is invisible
+  // because a dedicated, properly-lit ceiling plane (below) covers it — leaving
+  // the BackSide box face there would z-fight and render dark.
+  const roomMesh = new THREE.Mesh(roomGeo, [wallMat, invisMat, invisMat, wallMat, wallMat, wallMat]);
   roomMesh.position.set(0, ROOM_H / 2, 0);
   roomMesh.name = 'roomBox';
   // BackSide faces don't receive shadows cleanly (they show black artifacts on
@@ -85,6 +88,30 @@ export function createRoom(scene, texMap) {
   floorMesh.receiveShadow = true;
   floorMesh.name = 'floor';
   group.add(floorMesh);
+
+  // Ceiling (separate plane — same reason as the floor: BackSide faces produce
+  // lighting/shadow artifacts. A FrontSide plane with normal pointing downward
+  // is correctly illuminated by PointLights and SpotLights below it.)
+  //
+  // A point/spot light hung just under a flat ceiling can only light a small
+  // disc directly beneath it — everywhere else the rays graze the surface
+  // (dot(N,L)≈0) and it goes black. Real ceilings read as lit thanks to bounce
+  // light, which isn't simulated here, so we fake that ambient term with a
+  // subtle self-illumination from the wall texture. This glow is driven by the
+  // ceiling-light toggle in main.js (0 when off, lifted when on), so the ceiling
+  // only brightens when its own fixture is switched on.
+  const ceilMat = wallMat.clone();
+  ceilMat.side = THREE.FrontSide;
+  ceilMat.emissive = new THREE.Color(0xb9b2a6);
+  ceilMat.emissiveMap = ceilMat.map;
+  ceilMat.emissiveIntensity = 0; // off by default — main.js toggle drives it
+  const ceilGeo  = new THREE.PlaneGeometry(ROOM_W, ROOM_D);
+  const ceilMesh = new THREE.Mesh(ceilGeo, ceilMat);
+  ceilMesh.rotation.x = Math.PI / 2; // normal points -Y (faces down into the room)
+  ceilMesh.position.y = ROOM_H - 0.001; // 1mm below room-box top face to avoid Z-fight
+  ceilMesh.receiveShadow = false; // nothing casts meaningful shadows onto the ceiling from below
+  ceilMesh.name = 'ceiling';
+  group.add(ceilMesh);
 
   // -- Skirting boards ---
   // Dark wood strip running around the base of all four walls.
@@ -277,7 +304,7 @@ export function createRoom(scene, texMap) {
   });
 
   scene.add(group);
-  return { group };
+  return { group, ceilingMesh: ceilMesh };
 }
 
 // --- Pool Table ---
@@ -967,7 +994,7 @@ export function createCeilingLight(scene) {
   light.castShadow = true;
   light.shadow.mapSize.width  = 1024;
   light.shadow.mapSize.height = 1024;
-  light.shadow.camera.near = 0.5;
+  light.shadow.camera.near = 0.1;
   light.shadow.camera.far  = 25;
   light.shadow.bias        = -0.000008;
   light.shadow.normalBias  = 0.0;
