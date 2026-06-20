@@ -29,7 +29,7 @@
 import * as THREE from 'three';
 import { createRoom, createTable, createLamp, createCueStick, createBallMesh, createLoungeCorner, createDartboard, createCabinet, createStools, createPainting, createFrame2, createPlant, createPlant2, createCoatRack, createPainting3, createPlant2Corner, createFloorLamp, createCeilingLight, CUE_REACH, CUE_CLEAR_R, TABLE_SURFACE_Y, BALL_Y } from './models.js';
 import { generateTextures } from './textures.js';
-import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, BALL_RADIUS } from './physics.js';
+import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, BALL_RADIUS, POCKET_POSITIONS } from './physics.js';
 import { Controls } from './controls.js';
 import { initSounds, startBgMusic, stopBgMusic, setMusicRate, setMusicDifficulty, playHitSound, playBallHitSound, playBallWallSound, playBallDropSound, playErrorSound, playSuccessSound, playFailSound, playWinSound, playHeartBrokenSound, playClickSound } from './sounds.js';
 
@@ -91,6 +91,16 @@ let controls;
 let camDistBehind = CAM_DIST_BEHIND;
 
 const _ballScreenPos = new THREE.Vector3(); // scratch vector for cursor-targeted aiming
+
+// --- Pocket-Drop Animation State ---
+// A captured ball isn't hidden instantly - it animates falling into the hole
+// (gravity + funnelling toward the hole centre while tumbling), and the drop
+// sound is timed to the moment it dips below the felt. Entries self-remove once
+// the ball has sunk out of sight.
+const pocketingBalls   = [];
+const POCKET_GRAVITY   = 12.0;                    // downward acceleration (scene units/s^2)
+const POCKET_SINK_EASE = 9.0;                     // horizontal ease toward the hole centre (1/s)
+const POCKET_REST_Y    = TABLE_SURFACE_Y - 0.30;  // depth at which the ball is fully out of sight
 
 // --- Gameplay State ---
 const STATE = {
@@ -189,7 +199,7 @@ function init() {
   const aspect = window.innerWidth / window.innerHeight;
 
   camera0 = new THREE.PerspectiveCamera(52, aspect, 0.1, 100);
-  camera0.position.set(0, 14, 5);
+  camera0.position.set(0, 9.5, 6.5);
   camera0.lookAt(0, TABLE_SURFACE_Y, 0);
 
   camera1 = new THREE.PerspectiveCamera(58, aspect, 0.05, 100);
@@ -349,9 +359,10 @@ function _startLevel(levelIndex) {
   const numColored = LEVELS_BALL_COUNT[levelIndex];
   ballsRemaining   = numColored;
 
-  // Remove old ball meshes
+  // Remove old ball meshes and drop any in-flight pocket animations
   for (const b of balls) scene.remove(b.mesh);
   balls = [];
+  pocketingBalls.length = 0;
 
   // Spawn cue ball + colored balls at random positions
   const positions = randomizeBalls(numColored);
@@ -408,6 +419,11 @@ function _resetGame() {
 function _respawnCueBall() {
   const cueBall = balls.find(b => b.isCueBall);
   if (!cueBall) return;
+  // Cancel any still-running pocket-drop animation for the cue ball so it isn't
+  // re-hidden after we make it visible again below.
+  for (let i = pocketingBalls.length - 1; i >= 0; i--) {
+    if (pocketingBalls[i].isCueBall) pocketingBalls.splice(i, 1);
+  }
   cueBall.x        = 0;
   cueBall.z        = TABLE_H / 4;
   cueBall.vx       = 0;
@@ -563,6 +579,67 @@ function _updateBallRotation(ball, dt) {
   ball.mesh.quaternion.premultiply(_deltaQ);
 }
 
+// --- Pocket-Drop Animation ---
+const _dropQ = new THREE.Quaternion();
+
+/** Returns the centre [px, pz] of the pocket nearest a point - the hole the ball is dropping into. */
+function _nearestPocketCenter(x, z) {
+  let bestX = POCKET_POSITIONS[0][0], bestZ = POCKET_POSITIONS[0][1], bestD = Infinity;
+  for (const [px, pz] of POCKET_POSITIONS) {
+    const d = (x - px) * (x - px) + (z - pz) * (z - pz);
+    if (d < bestD) { bestD = d; bestX = px; bestZ = pz; }
+  }
+  return { px: bestX, pz: bestZ };
+}
+
+/** Begins a captured ball's fall-into-the-pocket animation (instead of hiding it). */
+function _startPocketDrop(ball) {
+  const { px, pz } = _nearestPocketCenter(ball.x, ball.z);
+  pocketingBalls.push({
+    mesh:        ball.mesh,
+    isCueBall:   ball.isCueBall,
+    px, pz,
+    vy:          0,
+    soundPlayed: false,
+    // random tumble axis so the ball visibly rolls over as it disappears
+    spinAxis:    new THREE.Vector3(Math.random() - 0.5, 0.2, Math.random() - 0.5).normalize(),
+  });
+}
+
+/**
+ * Per-frame update for balls falling into pockets: gravity pulls them down, an
+ * ease funnels them toward the hole centre, and they tumble on the way in. The
+ * drop sound fires as the ball crosses below the felt; once it has sunk past
+ * POCKET_REST_Y it is hidden and the entry removed.
+ */
+function _updatePocketing(dt) {
+  for (let i = pocketingBalls.length - 1; i >= 0; i--) {
+    const p = pocketingBalls[i];
+    const m = p.mesh;
+
+    p.vy -= POCKET_GRAVITY * dt;
+    m.position.y += p.vy * dt;
+
+    const k = 1 - Math.exp(-POCKET_SINK_EASE * dt);
+    m.position.x += (p.px - m.position.x) * k;
+    m.position.z += (p.pz - m.position.z) * k;
+
+    _dropQ.setFromAxisAngle(p.spinAxis, dt * 7);
+    m.quaternion.premultiply(_dropQ);
+
+    // Sync the clunk to the visual: play it as the ball drops below the surface.
+    if (!p.soundPlayed && m.position.y < TABLE_SURFACE_Y) {
+      playBallDropSound();
+      p.soundPlayed = true;
+    }
+
+    if (m.position.y <= POCKET_REST_Y) {
+      m.visible = false;
+      pocketingBalls.splice(i, 1);
+    }
+  }
+}
+
 // --- Lamp ---
 function _updateLamp(elapsedTime) {
   lamp.anchor.rotation.x = Math.sin(elapsedTime * LAMP_SWING_SPEED) * LAMP_SWING_AMP;
@@ -661,8 +738,9 @@ function animate() {
     }
 
     for (const b of newlyPocketed) {
-      playBallDropSound();
-      b.mesh.visible = false;
+      // Animate the ball falling into the hole instead of vanishing; the drop
+      // sound is played from within the animation as it dips below the felt.
+      _startPocketDrop(b);
       if (b.isCueBall) {
         setTimeout(() => _respawnCueBall(), 800);
       } else {
@@ -698,6 +776,9 @@ function animate() {
     ball.mesh.position.set(ball.x, BALL_Y, ball.z);
     _updateBallRotation(ball, dt);
   }
+
+  // -- 4b. Advance any in-progress pocket-drop animations --
+  _updatePocketing(dt);
 
   // -- 5. Cue --
   _updateCue(dt);
