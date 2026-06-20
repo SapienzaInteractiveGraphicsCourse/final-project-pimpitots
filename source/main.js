@@ -28,7 +28,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import * as THREE from 'three';
-import { createRoom, createTable, createLamp, createCueStick, createBallMesh, createLoungeCorner, createDartboard, createCabinet, createStools, createPainting, createFrame2, createPlant, createPlant2, createCoatRack, createPainting3, createPlant2Corner, CUE_REACH, CUE_CLEAR_R, TABLE_SURFACE_Y, BALL_Y } from './models.js';
+import { createRoom, createTable, createLamp, createCueStick, createBallMesh, createLoungeCorner, createDartboard, createCabinet, createStools, createPainting, createFrame2, createPlant, createPlant2, createCoatRack, createPainting3, createPlant2Corner, createFloorLamp, createCeilingLight, CUE_REACH, CUE_CLEAR_R, TABLE_SURFACE_Y, BALL_Y } from './models.js';
 import { generateTextures } from './textures.js';
 import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, BALL_RADIUS } from './physics.js';
 import { Controls } from './controls.js';
@@ -83,9 +83,11 @@ let camera0, camera1, activeCamera;
 let currentCameraIndex = 0;
 let cue;
 let lampOn    = true;
+let ceiling;                         // { group, light, lensMesh, onIntensity }
+let ceilingOn = false;               // starts off — only the table lamps are lit on load
 let ballEnvMap;
 let balls     = [];                  // [{ id, isCueBall, color, number, x, z, vx, vz, pocketed, mesh }]
-let btnLampEl, btnCamEl, btnMusicEl;
+let btnLampEl, btnCamEl, btnMusicEl, btnCeilingEl;
 let musicOn = true;
 let powerFillEl, powerBarWrapEl;
 let controls;
@@ -200,7 +202,14 @@ function init() {
   activeCamera = camera0;
 
   // ── Lights ──
-  const ambientLight = new THREE.AmbientLight(0x404060, 0.25);
+  // Dim hemisphere baseline (cool sky / warm floor) — just enough indirect-bounce
+  // fill that the room is never pure black when the ceiling light is switched off.
+  // General room brightness is carried by the toggleable ceiling light instead.
+  const hemiLight = new THREE.HemisphereLight(0xb9c4e0, 0x3a2f28, 0.22);
+  scene.add(hemiLight);
+
+  // Low flat ambient keeps a touch of cool base under the hemisphere gradient.
+  const ambientLight = new THREE.AmbientLight(0x404060, 0.10);
   scene.add(ambientLight);
 
   const fillLight = new THREE.DirectionalLight(0x8090ff, 0.0);
@@ -225,6 +234,12 @@ function init() {
   createCoatRack(scene);
   createPainting3(scene);
   createPlant2Corner(scene);
+  createFloorLamp(scene);
+  ceiling = createCeilingLight(scene);
+  ceiling.fixture.visible = false; // game starts in overview — hide the fixture, keep its light
+  // Start with the ceiling light off (only the table lamps lit on load).
+  ceiling.light.intensity = 0;
+  ceiling.lensMesh.material.emissiveIntensity = 0;
 
   // ── Cue stick ──
   cue = createCueStick(scene);
@@ -313,6 +328,7 @@ function _onKeyDown(e) {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   const k = e.key.toUpperCase();
   if (k === 'L') _toggleLamp();
+  if (k === 'O') _toggleCeiling();
   if (k === 'C' || k === 'V') _switchCamera();
   if (k === 'R') _resetGame();
   if (k === 'N') _newConfiguration();
@@ -588,10 +604,20 @@ function _toggleLamp() {
   _updateHUD();
 }
 
+function _toggleCeiling() {
+  ceilingOn = !ceilingOn;
+  ceiling.light.intensity = ceilingOn ? ceiling.onIntensity : 0;
+  ceiling.lensMesh.material.emissiveIntensity = ceilingOn ? 1.2 : 0;
+  _updateHUD();
+}
+
 // ─── Camera ───────────────────────────────────────────────────────────────────
 function _switchCamera() {
   currentCameraIndex = (currentCameraIndex + 1) % 2;
   activeCamera = currentCameraIndex === 0 ? camera0 : camera1;
+  // Hide the ceiling fixture in overview (the top-down camera looks through the
+  // ceiling and would otherwise see the lit disc); its light stays on.
+  ceiling.fixture.visible = activeCamera === camera1;
   _updateHUD();
 }
 
@@ -885,6 +911,7 @@ function _buildHUD() {
   hudLivesEl     = document.getElementById('hud-lives');
   btnCamEl       = document.getElementById('btn-cam');
   btnLampEl      = document.getElementById('btn-lamp');
+  btnCeilingEl   = document.getElementById('btn-ceiling');
   btnMusicEl     = document.getElementById('btn-music');
   powerFillEl    = document.getElementById('power-fill');
   powerBarWrapEl = document.getElementById('power-bar-wrap');
@@ -900,6 +927,7 @@ function _bindUIButtons() {
   document.getElementById('btn-reset').addEventListener('click', _resetGame);
   document.getElementById('btn-cam').addEventListener('click', _switchCamera);
   document.getElementById('btn-lamp').addEventListener('click', _toggleLamp);
+  document.getElementById('btn-ceiling').addEventListener('click', _toggleCeiling);
   document.getElementById('btn-music').addEventListener('click', _toggleMusic);
 
   document.addEventListener('click', function(e) {
@@ -912,6 +940,7 @@ function _updateHUD() {
   if (hudBallsEl) hudBallsEl.textContent = `Balls remaining: ${ballsRemaining}`;
   if (btnCamEl)   btnCamEl.textContent   = currentCameraIndex === 0 ? '\u{1F441} Player POV' : '\u{1F4F7} Overview';
   if (btnLampEl)  btnLampEl.textContent  = lampOn   ? '\u{1F311} Lamp OFF'  : '\u{1F315} Lamp ON';
+  if (btnCeilingEl) btnCeilingEl.textContent = ceilingOn ? '\u{1F4A1} Ceiling OFF' : '\u{1F4A1} Ceiling ON';
   if (btnMusicEl) btnMusicEl.textContent = musicOn  ? '\u{1F3B5} Music OFF' : '\u{1F3B5} Music ON';
   if (hudLivesEl && difficultyChosen) {
     hudLivesEl.innerHTML = '';

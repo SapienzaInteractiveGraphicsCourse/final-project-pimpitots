@@ -217,8 +217,9 @@ export function createRoom(scene, texMap) {
     group.add(m);
   });
 
-  // Diffuse moonlight coming through the window
-  const moonLight = new THREE.PointLight(0x8899cc, 0.12, 0, 0);
+  // Diffuse moonlight coming through the window — a justified cool wash over the
+  // window side of the room (boosted now that the lamp no longer floods the room).
+  const moonLight = new THREE.PointLight(0x8899cc, 0.15, 0, 0);
   moonLight.position.set(WALL_X + 0.6, WIN_CY + 0.2, WIN_CZ);
   group.add(moonLight);
 
@@ -662,8 +663,8 @@ export function createLamp(scene) {
 
   // Emissive material — each bulb glows on its own regardless of incoming light.
   const bulbMat = new THREE.MeshStandardMaterial({
-    color:             0xfffde8,
-    emissive:          new THREE.Color(0xffffcc),
+    color:             0xfff2d8,
+    emissive:          new THREE.Color(0xffe3b0), // warm to match the amber spotlights
     emissiveIntensity: 2.0, // matches the value the lamp toggle restores on lamp-on
     roughness:         0.9,
     metalness:         0.0,
@@ -756,16 +757,24 @@ export function createLamp(scene) {
     anchor.add(bulbMesh);
     bulbMeshes.push(bulbMesh);
 
-  
-    
-    const light = new THREE.PointLight(0xfff5e0, 1.0, 30, 1.5); // warm white
-    light.shadow.mapSize.width = 1024;  // Fixes the jagged, pixelated edges
-    light.shadow.mapSize.height = 1024;
+    // Spotlight aimed straight down at the felt — concentrates the warm light
+    // into a pool on the table (billiard-hall look) instead of flooding the room.
+    const light = new THREE.SpotLight(0xffbd78, 1.7, 30, Math.PI / 4, 0.3, 1.5); // warm amber
     light.position.set(sx, bulbY, 0);
+    // Target sits on the felt directly below; parented to anchor so it swings with
+    // the fixture if LAMP_SWING is ever re-enabled. Local Y (TABLE_SURFACE_Y −
+    // ROOM_H) lands the beam at world table height.
+    light.target.position.set(sx, TABLE_SURFACE_Y - ROOM_H, 0);
+    anchor.add(light.target);
+
     light.castShadow = true;
-    light.shadow.camera.near = 0.05; // default 0.5 would clip the dome wall (radius 0.38) out of the shadow map entirely
-    light.shadow.bias = -0.0001; // Assumption: small negative bias to avoid self-shadowing acne on the curved dome at this scale; may need empirical retuning
-    light.shadow.normalBias = 0.0;     // Prevents shadow acne on the curved sphere
+    light.shadow.mapSize.width  = 2048;  // crisp shadow edges
+    light.shadow.mapSize.height = 2048;
+    light.shadow.camera.near = 0.1;   // bracket bulb → floor
+    light.shadow.camera.far  = 8.0;
+    light.shadow.bias = -0.000005; // small negative bias to avoid acne on the curved dome
+    light.shadow.normalBias = 0.0;
+    light.shadow.radius      = 5;
     light.shadow.camera.updateProjectionMatrix();
     light.userData.onIntensity = light.intensity; // remembered so the lamp toggle can restore it
     anchor.add(light);
@@ -802,6 +811,140 @@ function _createChainLinks(length, mat) {
     group.add(link);
   }
   return group;
+}
+
+// ─── Floor Lamp (warm accent by the couch) ───────────────────────────────────
+/**
+ * A simple standing floor lamp placed in the lounge corner: weighted base, thin
+ * pole, a conical shade and an emissive bulb with a warm PointLight inside. It
+ * justifies a warm pool of light over the seating area and is always on
+ * (independent of the overhead lamp toggle).
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group, light: THREE.PointLight }}
+ */
+export function createFloorLamp(scene) {
+  const group = new THREE.Group();
+  group.name  = 'floorLamp';
+
+  // Place the lamp to the right of the couch (lounge corner at x≈-7.5), between
+  // it and the plant (x=-2.0), near the front wall (-Z).
+  const LAMP_X = -4.5;
+  const LAMP_Z = -7.8;
+  group.position.set(LAMP_X, 0, LAMP_Z);
+
+  const POLE_H  = 1.6;   // pole height
+  const SHADE_H = 0.34;  // shade cone height
+  const SHADE_R = 0.30;  // shade bottom radius
+  const shadeBaseY = POLE_H;            // shade rim sits at top of pole
+  const shadeMidY  = POLE_H + SHADE_H / 2;
+
+  const metalMat = new THREE.MeshStandardMaterial({ color: 0x2b2b30, roughness: 0.5, metalness: 0.8 });
+  const shadeMat = new THREE.MeshStandardMaterial({
+    color: 0xd9c08a, roughness: 0.8, metalness: 0.0, side: THREE.DoubleSide,
+    emissive: new THREE.Color(0xffd9a0), emissiveIntensity: 0.35, // shade glows faintly from the bulb within
+  });
+  const bulbMat = new THREE.MeshStandardMaterial({
+    color: 0xfffde8, emissive: new THREE.Color(0xffe6b0), emissiveIntensity: 2.0,
+    roughness: 0.9, metalness: 0.0,
+  });
+
+  // Base
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.30, 0.06, 24), metalMat);
+  base.position.y = 0.03;
+  base.castShadow = true;
+  group.add(base);
+
+  // Pole
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, POLE_H, 16), metalMat);
+  pole.position.y = POLE_H / 2;
+  pole.castShadow = true;
+  group.add(pole);
+
+  // Shade — open cone (wider at the bottom)
+  const shade = new THREE.Mesh(new THREE.ConeGeometry(SHADE_R, SHADE_H, 24, 1, true), shadeMat);
+  shade.position.y = shadeMidY;
+  shade.castShadow = true;
+  group.add(shade);
+
+  // Bulb inside the shade
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), bulbMat);
+  bulb.position.y = shadeBaseY + 0.10;
+  group.add(bulb);
+
+  // Warm light — no shadow casting (three shadow-casting spotlights already exist).
+  const light = new THREE.PointLight(0xffd9a0, 0.8, 8, 2);
+  light.position.y = shadeBaseY + 0.10;
+  light.castShadow = true;
+  group.add(light);
+
+  scene.add(group);
+  return { group, light };
+}
+
+// ─── Ceiling Light (toggleable general room light) ───────────────────────────
+/**
+ * A flush-mount ceiling fixture providing broad, toggleable general-room light.
+ * When on it lifts the whole room to a comfortable brightness; when off the room
+ * falls back to the dim baseline fill + accent lights for an atmospheric look.
+ * The PointLight casts no shadows — it is a soft, even fill, not a focused source.
+ *
+ * @param {THREE.Scene} scene
+ * @returns {{ group: THREE.Group, fixture: THREE.Group, light: THREE.PointLight, lensMesh: THREE.Mesh, onIntensity: number }}
+ */
+export function createCeilingLight(scene) {
+  const group = new THREE.Group();
+  group.name  = 'ceilingLight';
+
+  const lensMat = new THREE.MeshStandardMaterial({
+    color:             0xfff4e0,
+    emissive:          new THREE.Color(0xffe9c8),
+    emissiveIntensity: 1.2, // value the toggle restores when the light is on
+    roughness:         0.85,
+    metalness:         0.0,
+    side:              THREE.DoubleSide,
+  });
+  const ringMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, roughness: 0.4, metalness: 0.9 });
+
+  // Visible fixture meshes live in their own sub-group so they can be hidden
+  // (e.g. from the overview camera looking down through the ceiling) without
+  // disabling the PointLight, which stays a direct child of `group`.
+  const fixture = new THREE.Group();
+  fixture.name  = 'ceilingFixture';
+
+  // Flush lens disc + brass trim ring, mounted just below the ceiling, facing down.
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.55, 32), lensMat);
+  lens.rotation.x = Math.PI / 2; // normal points -Y (visible from below)
+  lens.position.set(0, ROOM_H - 0.02, 0);
+  lens.name = 'ceilingLens';
+  fixture.add(lens);
+
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.04, 8, 32), ringMat);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.set(0, ROOM_H - 0.02, 0);
+  fixture.add(ring);
+
+  group.add(fixture);
+
+  // Broad warm-neutral fill. distance 60 keeps falloff gentle across the 22×18
+  // room so the corners still read.
+  const light = new THREE.PointLight(0xfff2e0, 0.9, 60, 1.0);
+  light.position.set(0, ROOM_H - 0.3, 0);
+  // Cast shadows so the overhead light reads as a real room source. A PointLight
+  // uses a 6-face cube shadow map — far brackets the light (y≈6.7) to the room's
+  // far floor corners (~16 units); bias/normalBias suppress acne on the felt/floor.
+  light.castShadow = true;
+  light.shadow.mapSize.width  = 1024;
+  light.shadow.mapSize.height = 1024;
+  light.shadow.camera.near = 0.5;
+  light.shadow.camera.far  = 25;
+  light.shadow.bias        = -0.000008;
+  light.shadow.normalBias  = 0.0;
+  light.shadow.camera.updateProjectionMatrix();
+  group.add(light);
+
+  scene.add(group);
+  return { group, fixture, light, lensMesh: lens, onIntensity: light.intensity };
 }
 
 // ─── Lounge Corner (couch + coffee table, modeled in Blender) ─────────────────
