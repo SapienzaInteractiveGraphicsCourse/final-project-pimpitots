@@ -5,7 +5,7 @@ Sapienza University of Rome, Interactive Graphics course (Prof. Marco Schaerf), 
 By Francesco Pimpinelli & Leonardo Pitotti.
 
 ---
-**Live demo (GitHub Pages):** [🎱 Play Here](https://sapienzainteractivegraphicscourse.github.io/final-project-pimpitots/)
+**Live demo (GitHub Pages):** 🎱[Play Here](https://sapienzainteractivegraphicscourse.github.io/final-project-pimpitots/)
 
 
 ## How to Play
