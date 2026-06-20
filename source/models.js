@@ -655,16 +655,18 @@ export function createLamp(scene) {
   });
 
   const shadeInnerMat = new THREE.MeshStandardMaterial({
-    color:     0xf2efe6,
-    roughness: 0.7,
-    metalness: 0.0,
-    side:      THREE.BackSide, // visible looking up into the shade through its open underside
+    color:             0xf2efe6,
+    emissive:          new THREE.Color(0xffe8a0),
+    emissiveIntensity: 1.2,
+    roughness:         0.7,
+    metalness:         0.0,
+    side:              THREE.DoubleSide,
   });
 
   // Emissive material — each bulb glows on its own regardless of incoming light.
   const bulbMat = new THREE.MeshStandardMaterial({
-    color:             0xfff2d8,
-    emissive:          new THREE.Color(0xffe3b0), // warm to match the amber spotlights
+    color:             0xfffde8,
+    emissive:          new THREE.Color(0xffffcc),
     emissiveIntensity: 2.0, // matches the value the lamp toggle restores on lamp-on
     roughness:         0.9,
     metalness:         0.0,
@@ -710,6 +712,7 @@ export function createLamp(scene) {
   // ── Three pendant shades, evenly spaced along the bar ──
   const shadeXs     = [-(halfBar - LAMP_SHADE_INSET), 0, (halfBar - LAMP_SHADE_INSET)];
   const bulbMeshes  = [];
+  const linerMeshes = [];
   const lights      = [];
 
   for (const sx of shadeXs) {
@@ -739,6 +742,7 @@ export function createLamp(scene) {
     linerMesh.position.set(sx, shadeCenterY, 0);
     linerMesh.name = 'lampShadeLiner';
     anchor.add(linerMesh);
+    linerMeshes.push(linerMesh);
 
     // Trim ring at the shade's open rim (rim sits at the hemisphere's local y = 0)
     const trimGeo  = new THREE.TorusGeometry(LAMP_SHADE_R, LAMP_TRIM_TUBE, 8, 24);
@@ -757,32 +761,47 @@ export function createLamp(scene) {
     anchor.add(bulbMesh);
     bulbMeshes.push(bulbMesh);
 
-    // Spotlight aimed straight down at the felt — concentrates the warm light
-    // into a pool on the table (billiard-hall look) instead of flooding the room.
-    const light = new THREE.SpotLight(0xffbd78, 1.7, 30, Math.PI / 4, 0.3, 1.5); // warm amber
+    // ── Light — a SpotLight, NOT a PointLight ──────────────────────────────
+    // A PointLight radiates in every direction: it would spill up onto the
+    // ceiling, out to the walls, and straight into the other two shades,
+    // making the three lamps incoherent. A SpotLight emits ONLY inside a
+    // downward cone, so each lamp lights its own patch of table and nothing
+    // else. The cone half-angle (~40°) sits comfortably inside the shade's
+    // own opening yet is wide enough that the three pools overlap across the
+    // felt — so every ball is lit enough to cast a readable shadow.
+    const light = new THREE.SpotLight(
+      0xfff5e0,        // warm white
+      2.2,             // intensity
+      30,              // range
+      Math.PI / 4.5,   // cone half-angle (~40°) — overlapping pools cover the whole felt
+      0.25,            // penumbra — soft edge, but a large fully-lit core
+      1.5              // decay
+    );
     light.position.set(sx, bulbY, 0);
-    // Target sits on the felt directly below; parented to anchor so it swings with
-    // the fixture if LAMP_SWING is ever re-enabled. Local Y (TABLE_SURFACE_Y −
-    // ROOM_H) lands the beam at world table height.
-    light.target.position.set(sx, TABLE_SURFACE_Y - ROOM_H, 0);
-    anchor.add(light.target);
+
+    // Target sits directly below the bulb in the anchor's LOCAL frame and is a
+    // child of the anchor, so the cone points straight down and swings together
+    // with the whole fixture when the lamp sways.
+    const target = new THREE.Object3D();
+    target.position.set(sx, bulbY - 1.0, 0);
+    target.name = 'lampSpotTarget';
+    anchor.add(target);
+    light.target = target;
 
     light.castShadow = true;
-    light.shadow.mapSize.width  = 2048;  // crisp shadow edges
-    light.shadow.mapSize.height = 2048;
-    light.shadow.camera.near = 0.1;   // bracket bulb → floor
-    light.shadow.camera.far  = 8.0;
-    light.shadow.bias = -0.000005; // small negative bias to avoid acne on the curved dome
-    light.shadow.normalBias = 0.0;
-    light.shadow.radius      = 5;
-    light.shadow.camera.updateProjectionMatrix();
+    light.shadow.mapSize.set(2048, 2048);   // higher res — the wide cone spreads the map over the whole table
+    light.shadow.camera.near = 0.5;
+    light.shadow.camera.far  = 12;          // bulb→floor is ~5.6 units; 12 leaves margin
+    light.shadow.bias        = -0.0004;     // avoid self-shadowing acne without detaching the contact shadow
+    light.shadow.normalBias  = 0.0;         // MUST be 0 on the flat felt — any push detaches the ball's contact shadow
+    light.shadow.radius      = 3;           // soft edges; blends the 2–3 overlapping cone shadows into one clean shadow
     light.userData.onIntensity = light.intensity; // remembered so the lamp toggle can restore it
     anchor.add(light);
     lights.push(light);
   }
 
   scene.add(anchor);
-  return { anchor, bulbMeshes, lights };
+  return { anchor, bulbMeshes, linerMeshes, lights };
 }
 
 /**

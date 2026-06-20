@@ -601,6 +601,9 @@ function _toggleLamp() {
   for (const bulbMesh of lamp.bulbMeshes) {
     bulbMesh.material.emissiveIntensity = lampOn ? 2.0 : 0;
   }
+  for (const linerMesh of lamp.linerMeshes) {
+    linerMesh.material.emissiveIntensity = lampOn ? 1.2 : 0;
+  }
   _updateHUD();
 }
 
