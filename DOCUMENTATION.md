@@ -163,7 +163,7 @@ The loading overlay is dismissed by `_dismissLoader()` when both `_resourcesRead
 
 ### Runtime-managed elements (`animate` loop), in order
 
-Each frame `animate()` performs: (1) delta-time computation (capped at `DT_CAP`); (2) **input** (`controls.update()`, `consumeShot()` → possible `_fireShot`); (3) **physics** (only in the ROLLING/STRIKING states: adaptive sub-stepping of 1 or 3 steps via `stepPhysics`, handling of pocketed balls, cue-ball respawn, counter decrement, level-complete check, and when the table is at rest `snapToRest` + possible `_loseLife`); (4) **synchronization** of the ball meshes with the physics state plus rolling-rotation computation; (5) **cue** (`_updateCue`); (6) **lamp** (swing, `_updateLamp`); (7) **camera** (Player POV update if active); (8) **render** + power-bar update.
+Each frame `animate()` performs: (1) delta-time computation (capped at `DT_CAP`); (2) **input** (`controls.update()`, `consumeShot()` → possible `_fireShot`); (3) **physics** (only in the ROLLING/STRIKING states: adaptive sub-stepping of 1 or 3 steps via `stepPhysics`, starting a pocket-drop animation for each newly-pocketed ball, cue-ball respawn, counter decrement, level-complete check, and when the table is at rest `snapToRest` + possible `_loseLife`); (4) **synchronization** of the ball meshes with the physics state plus rolling-rotation computation; (4b) **pocket-drop animation** update (`_updatePocketing`) for any ball still falling into a hole; (5) **cue** (`_updateCue`); (6) **lamp** (swing, `_updateLamp`); (7) **camera** (Player POV update if active); (8) **render** + power-bar update.
 
 ### State machine (`gameState`)
 
@@ -173,7 +173,7 @@ The `STATE` object defines three states:
 |---|---|---|
 | `WAITING` | Waiting for the shot | The cue follows the cursor/aim, the charge bar is live, a shot may fire. Controls are enabled. |
 | `STRIKING` | Strike in progress | The cue snaps forward through its short animation (`STRIKE_FORWARD_TIME`); when the tip reaches the ball surface the cue-ball velocity is applied and the impact sound plays; controls are disabled. |
-| `ROLLING` | Balls in motion | Physics is integrated every frame, the cue is hidden; once all balls "look stopped" it returns to `WAITING`. |
+| `ROLLING` | Balls in motion | Physics is integrated every frame, the cue is hidden; a pocketed ball animates falling into its hole independently of this check; once every remaining ball "looks stopped" it returns to `WAITING`. |
 
 Transitions:
 
@@ -205,6 +205,9 @@ Additional states not represented in `gameState` but handled via flags: `gameWon
 | `_resolveAimAngle` | Computes a collision-free aim angle, making the cue "glide" around the other balls. |
 | `_updateCue` | Updates the cue's position/rotation per state; in STRIKING applies the velocity to the cue ball on contact. |
 | `_updateBallRotation` | Applies rolling rotation to a ball's mesh based on its velocity. |
+| `_nearestPocketCenter` | Finds the centre of the pocket nearest a point - the hole a captured ball is dropping into. |
+| `_startPocketDrop` | Begins a captured ball's fall-into-the-pocket animation (instead of hiding it instantly), scaling fall speed, funnelling, and tumble rate to how fast the ball arrived. |
+| `_updatePocketing` | Per-frame update of every in-flight pocket drop: applies gravity, eases the ball toward the hole centre, tumbles it, times the drop sound, and removes/hides it once fully sunk. |
 | `_updateLamp` | Swings the pendant lamp (sinusoidal rotation of the anchor). |
 | `_toggleMusic` / `_toggleLamp` / `_toggleCeiling` | Toggle music, the table lamp, and the ceiling light respectively, updating the HUD. |
 | `_switchCamera` | Alternates between the Overview and Player POV cameras; shows/hides the ceiling fixture accordingly. |
@@ -225,13 +228,13 @@ Additional states not represented in `gameState` but handled via flags: `gameWon
 
 ### Notable constants
 
-`LEVELS_BALL_COUNT = [1,2,3,4]` (balls per level), `NUM_LEVELS = 4`, lamp swing parameters, POV camera distance/height, strike timings, `BALL_COLORS` (palette with the cue ball + 8 solid colors; the 9–15 entries for the striped balls are present but **commented out**, hence inactive).
+`LEVELS_BALL_COUNT = [1,2,3,4]` (balls per level), `NUM_LEVELS = 4`, lamp swing parameters, POV camera distance/height, strike timings, pocket-drop animation tuning (`POCKET_GRAVITY`, `POCKET_SINK_EASE`, `POCKET_REST_Y`, `POCKET_DROP_V0`, `POCKET_SPEED_REF`), `BALL_COLORS` (palette with the cue ball + 8 solid colors; the 9–15 entries for the striped balls are present but **commented out**, hence inactive).
 
 ---
 
 ## 2.3 source/physics.js
 
-Pure-JavaScript physics simulation, with **no Three.js dependency**. It operates on ball-state objects `{ id, isCueBall, x, z, vx, vz, pocketed, mesh }` in the XZ plane.
+Pure-JavaScript physics simulation, with **no Three.js dependency**. It operates on ball-state objects `{ id, isCueBall, x, z, vx, vz, pocketed, mesh }` in the XZ plane. When a ball is captured, `stepPhysics` also records its arrival speed as `pocketSpeed`, which `main.js` reads to scale the pocket-drop animation.
 
 Logical sub-sections:
 
@@ -246,9 +249,8 @@ Logical sub-sections:
 | `_nearPocketOpening` | Tells whether a ball is close enough to a pocket to suppress the cushion bounce. |
 | `_resolveCushion` | Reflects velocity off the rectangular boundaries and clamps the ball's position; skips the check near pockets. |
 | `_resolveBallBall` | Resolves the elastic collision between two equal-mass balls (overlap correction + impulse). |
-| `stepPhysics` | Advances the simulation by one dt: integrates positions, applies friction, resolves collisions, detects pocketing; returns the newly pocketed balls. |
-| `isAllStopped` | True once every non-pocketed ball has exactly zero velocity. |
-| `isReadyForNextShot` | True once every ball is below the perceptual "looks stopped" floor (looser than `isAllStopped`). |
+| `stepPhysics` | Advances the simulation by one dt: integrates positions, applies friction, resolves collisions, detects pocketing (recording each captured ball's arrival speed as `pocketSpeed`); returns the newly pocketed balls. |
+| `isReadyForNextShot` | True once every non-pocketed ball's speed is below the perceptual "looks stopped" floor. |
 | `snapToRest` | Zeroes vx/vz on every non-pocketed ball (called when leaving ROLLING). |
 | `randomizeBalls` | Generates valid, non-overlapping start positions (index 0 = cue ball on the player side; the rest = colored). |
 
@@ -336,9 +338,9 @@ Exported constants: `TABLE_SURFACE_Y`, `BALL_Y` (resting ball center), `CUE_REAC
 | Name (export) | Description (brief) |
 |---|---|
 | `createRoom` | Builds the closed room: floor, ceiling, 4 walls (box rendered from the inside), skirting boards, a window with hole/glass/frame/moonlight. |
-| `createTable` | Builds the table: felt, wooden body, rails/cushions, 6 pockets, 4 turned-wood legs (LatheGeometry). |
+| `createTable` | Builds the table: felt, wooden body, rails/cushions, 6 pockets, 4 tapered-box legs (hand-built `BufferGeometry`). |
 | `_buildRails` | Builds the four rail/cushion segments, leaving gaps for the pockets. |
-| `_buildPockets` | Builds, for each pocket, the dark disc, the tapered open cylinder, and the bottom cap. |
+| `_buildPockets` | Builds, for each pocket, a tapered open cylinder with a baked vertex-color depth gradient (lit, so the holes brighten or dim with the table lamp and ceiling light) plus a black bottom cap. |
 | `createCueStick` | Creates the cue stick as a parent-child hierarchy (root → group → tip/shaft/grip). |
 | `createBallMesh` | Creates a ball mesh with `MeshPhysicalMaterial` (glossy clearcoat) and a per-ball texture. |
 | `createLamp` | Creates the pendant lamp: a horizontal bar on two chains with three shades, emissive bulbs, and shadow-casting SpotLights. |
@@ -380,7 +382,7 @@ anchor (Group, pivot at the ceiling)
 
 Lamp materials: `goldMat` (brass), `shadeOuterMat` (baize green), `shadeInnerMat` (emissive white), `bulbMat` (emissive amber). `createLamp` returns `{ anchor, bulbMeshes, linerMeshes, lights }`, used by the lamp toggle in `main.js`.
 
-**Table (`createTable`)**: felt (`PlaneGeometry`), body (`BoxGeometry`), rails (4 boxes via `_buildRails`), pockets (disc + cylinder + cap via `_buildPockets`), 4 legs (`LatheGeometry` from a turned profile). Materials from `texMap`: felt, wood (body/rails), leg (legs).
+**Table (`createTable`)**: felt (`PlaneGeometry`), body (`BoxGeometry`), rails (4 boxes via `_buildRails`), pockets (vertex-colored tapered cylinder + cap via `_buildPockets`), 4 legs (tapered box built from a hand-built `BufferGeometry`). Materials from `texMap`: felt, wood (body/rails), leg (legs).
 
 **Room (`createRoom`)**: room box with inward-facing faces, a separate floor (`PlaneGeometry` with `uv2` for AO), skirting boards, a window rebuilt with 4 holed panels + 4 "reveal" faces + glass (`MeshPhysicalMaterial`) + wooden frame, a `PointLight` of moonlight.
 
