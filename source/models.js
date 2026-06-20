@@ -321,7 +321,74 @@ export function createTable(scene, texMap) {
   const group = new THREE.Group();
   group.name  = 'table';
 
-  // -- Felt playing surface ---
+  // -- Bed outline with 6 TRUE pocket openings ---
+  // Both the felt surface and the wood body below are cut from this same
+  // footprint-with-holes. Punching the holes through BOTH layers is what lets
+  // you actually see down into the recessed pocket shaft - a solid felt plane or
+  // body slab would cap the hole and flatten it (the bug being fixed here).
+  const BED_HX = TABLE_W / 2 + RAIL_W;   // footprint half-extent X (5.02)
+  const BED_HY = TABLE_H / 2 + RAIL_W;   // footprint half-extent Z (2.77)
+  // Cut a hair wider than the pocket shaft mouth (0.32) so the dark shaft sits
+  // just inside the opening and hides the wood throat behind it.
+  const CUT_R  = 0.325;
+
+  function _bedShape() {
+    const s = new THREE.Shape();
+    s.moveTo(-BED_HX, -BED_HY);
+    s.lineTo( BED_HX, -BED_HY);
+    s.lineTo( BED_HX,  BED_HY);
+    s.lineTo(-BED_HX,  BED_HY);
+    s.closePath();
+    // Pocket layout is symmetric in Z, so the hole SET is identical whether the
+    // shape's Y maps to +Z or -Z after rotation - no sign juggling needed.
+    for (const [px, pz] of POCKET_POSITIONS) {
+      const h = new THREE.Path();
+      h.absarc(px, pz, CUT_R, 0, Math.PI * 2, true);
+      s.holes.push(h);
+    }
+    return s;
+  }
+
+  // Felt outline = the PLAYING rectangle (green reaches the cushions) with each
+  // pocket carved out as a concave arc. Because every pocket disk pokes past the
+  // rectangle edge, the cut-outs are boundary indentations (one simple outline,
+  // no holes) - and crucially the felt stops at the pocket mouth, leaving the
+  // wood jaws/corners around each pocket exposed (the wood the user wanted back).
+  function _feltShape() {
+    const HX = TABLE_W / 2, HY = TABLE_H / 2, R = CUT_R;
+    const cx = Math.abs(POCKET_POSITIONS[0][0]);   // corner pocket |x| (4.28)
+    const cz = Math.abs(POCKET_POSITIONS[0][1]);   // corner pocket |z| (2.03)
+    const sz = Math.abs(POCKET_POSITIONS[4][1]);   // side  pocket |z| (2.43)
+    // Where each pocket circle meets the rectangle edges (interior intersection).
+    const dCx = Math.sqrt(R * R - (HY - cz) ** 2); // offset along long edge by a corner pocket
+    const dCz = Math.sqrt(R * R - (HX - cx) ** 2); // offset along short edge by a corner pocket
+    const dS  = Math.sqrt(R * R - (sz - HY) ** 2); // half-width of a side-pocket notch
+
+    // Walk CCW; each entry = [centreX, centreZ, fromX, fromZ, toX, toZ]. Every
+    // arc is a clockwise (concave) indentation into the felt.
+    const arcs = [
+      [  0, -sz,        -dS, -HY,        dS, -HY      ],  // bottom-middle
+      [ cx, -cz,    cx - dCx, -HY,        HX, -cz + dCz],  // bottom-right corner
+      [ cx,  cz,          HX,  cz - dCz, cx - dCx,  HY ],  // top-right corner
+      [  0,  sz,          dS,  HY,       -dS,  HY      ],  // top-middle
+      [-cx,  cz, -(cx - dCx),  HY,       -HX,  cz - dCz],  // top-left corner
+      [-cx, -cz,         -HX, -cz + dCz, -(cx - dCx), -HY], // bottom-left corner
+    ];
+
+    const s = new THREE.Shape();
+    s.moveTo(arcs[0][2], arcs[0][3]);
+    for (let i = 0; i < arcs.length; i++) {
+      const [acx, acz, fx, fz, tx, tz] = arcs[i];
+      if (i > 0) s.lineTo(fx, fz);                       // straight cushion edge to this pocket
+      const a0 = Math.atan2(fz - acz, fx - acx);
+      const a1 = Math.atan2(tz - acz, tx - acx);
+      s.absarc(acx, acz, R, a0, a1, true);               // concave arc around the pocket mouth
+    }
+    s.closePath();
+    return s;
+  }
+
+  // -- Felt playing surface (rectangle with pocket scallops) ---
   const feltMat = new THREE.MeshStandardMaterial({
     map:          texMap.felt.map,
     normalMap:    texMap.felt.normalMap,
@@ -331,7 +398,14 @@ export function createTable(scene, texMap) {
     normalScale:  new THREE.Vector2(0.15, 0.15), // TUNE: 0.05=barely visible ,  0.15=subtle ,  0.4+=grid returns
   });
 
-  const feltGeo     = new THREE.PlaneGeometry(TABLE_W, TABLE_H);
+  const feltGeo = new THREE.ShapeGeometry(_feltShape(), 24);
+  // ShapeGeometry emits raw-coordinate UVs; renormalise so the felt-weave map
+  // tiles at the same density as the old PlaneGeometry-based surface.
+  {
+    const uv = feltGeo.attributes.uv, p = feltGeo.attributes.position;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, p.getX(i) / TABLE_W + 0.5, p.getY(i) / TABLE_H + 0.5);
+    uv.needsUpdate = true;
+  }
   const surfaceMesh = new THREE.Mesh(feltGeo, feltMat);
   surfaceMesh.rotation.x    = -Math.PI / 2;
   surfaceMesh.position.y    = TABLE_SURFACE_Y;
@@ -339,7 +413,7 @@ export function createTable(scene, texMap) {
   surfaceMesh.name = 'felt';
   group.add(surfaceMesh);
 
-  // -- Table body (dark wood box under the felt) ---
+  // -- Table body (dark wood slab under the felt, same pocket holes) ---
   const bodyMat = new THREE.MeshStandardMaterial({
     map:          texMap.wood.map,
     normalMap:    texMap.wood.normalMap,
@@ -348,11 +422,21 @@ export function createTable(scene, texMap) {
     metalness:    0.1,
   });
 
-  const bodyGeo  = new THREE.BoxGeometry(TABLE_W + RAIL_W * 2, 0.08, TABLE_H + RAIL_W * 2);
+  // Tall slab: this single piece is BOTH the table body and the apron skirt the
+  // leg tops plug into. Extruding the holed footprint (instead of a plain box)
+  // keeps exactly ONE outer face per side - no near-coplanar faces to z-fight
+  // (the old "light line" on the skirt) - while opening the pockets through it.
+  // Deep enough that its bottom (~0.836) sits BELOW the pocket shaft's bottom
+  // (~0.88), so the dark cone is fully enclosed inside the slab and never dangles
+  // into view under the table - you only see it looking down into the hole.
+  const BODY_H   = 0.46;  // top under felt (~1.296) down to skirt bottom (~0.836)
+  const bodyGeo  = new THREE.ExtrudeGeometry(_bedShape(), { depth: BODY_H, bevelEnabled: false, curveSegments: 24 });
+  bodyGeo.translate(0, 0, -BODY_H / 2);   // centre the slab on its own thickness
   const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
-  // Sit the body just below the felt so its top face isn't coplanar with the
-  // playing surface - avoids z-fighting and shadow artifacts under the balls.
-  bodyMesh.position.set(0, TABLE_SURFACE_Y - 0.044, 0);
+  // Top face at TABLE_SURFACE_Y - 0.004 (just below the felt so it isn't coplanar
+  // with the playing surface — avoids z-fighting/shadow artifacts under the balls).
+  bodyMesh.rotation.x    = -Math.PI / 2;
+  bodyMesh.position.set(0, (TABLE_SURFACE_Y - 0.004) - BODY_H / 2, 0);
   bodyMesh.castShadow    = true;
   bodyMesh.receiveShadow = true;
   bodyMesh.name = 'tableBody';
@@ -410,26 +494,9 @@ export function createTable(scene, texMap) {
     }
   }
 
-  // ── Apron — vertical skirt under the frame, connecting leg tops ───────────
-  const APRON_H   = 0.22;   // hanging height below frame bottom
-  const APRON_T   = 0.04;   // panel thickness
-  const apronY    = (TABLE_SURFACE_Y - 0.084) - APRON_H / 2;  // body-bottom minus half height
-
-  const apronLongGeo  = new THREE.BoxGeometry(TABLE_W + RAIL_W * 2, APRON_H, APRON_T);
-  const apronShortGeo = new THREE.BoxGeometry(APRON_T, APRON_H, TABLE_H + RAIL_W * 2 - APRON_T * 2);
-
-  for (const sz of [-1, 1]) {
-    const m = new THREE.Mesh(apronLongGeo, legMat);
-    m.position.set(0, apronY, sz * (TABLE_H / 2 + RAIL_W - APRON_T / 2));
-    m.castShadow = m.receiveShadow = true;
-    group.add(m);
-  }
-  for (const sx of [-1, 1]) {
-    const m = new THREE.Mesh(apronShortGeo, legMat);
-    m.position.set(sx * (TABLE_W / 2 + RAIL_W - APRON_T / 2), apronY, 0);
-    m.castShadow = m.receiveShadow = true;
-    group.add(m);
-  }
+  // (No separate apron panel: the tall body slab above already forms the skirt,
+  // so there are no near-coplanar faces to z-fight — this removes the flickering
+  // "light line" that a thin slab + front-mounted apron produced.)
 
   scene.add(group);
   return { group, surfaceMesh };
@@ -474,45 +541,68 @@ function _buildRails(group, mat) {
 // --- Pocket helpers ---
 
 function _buildPockets(group, woodMat) {
-  const SY             = TABLE_SURFACE_Y;
-  const HOLE_R = 0.32;   // matches POCKET_RADIUS in physics.js
-  const DEPTH  = 0.20;
+  const SY      = TABLE_SURFACE_Y;
+  // Mouth sits just inside the felt/body opening (CUT_R = 0.325) so the dark
+  // shaft wall hides the wood throat behind it instead of leaving a bright gap.
+  const HOLE_R  = 0.32;          // ~matches POCKET_RADIUS in physics.js
+  // Reverted to a contained depth: the shaft bottom (~0.88) stays above the
+  // slab bottom (~0.836) so the cone is hidden inside the body, not dangling.
+  const DEPTH   = 0.42;          // deep enough to read from the top, short enough to hide
+  const BOT_R   = HOLE_R * 0.30; // strong taper -> convergence sells the depth
+  const SEGS    = 32;
+  const RINGS   = 12;            // vertical subdivisions -> smooth shading gradient
 
-  const holeMat = new THREE.MeshStandardMaterial({
-    color:     0x060606,
-    roughness: 1.0,
-    metalness: 0.0,
+  // The depth cue is a vertical brightness gradient down the inner wall: a faint
+  // lit lip at the felt edge fading FAST to pure black. We bake this into vertex
+  // colors and render it UNLIT (MeshBasicMaterial) so the gradient always shows,
+  // never washed out or blacked-out by the dim scene lighting. A steep falloff
+  // (cubic) keeps only the top rim lit so the cone's end is never perceptible -
+  // the whole lower shaft is solid black.
+  const LIP_SHADE = 0.16;  // grey value at the mouth (0..1) - the lit rim
+  const wallMat = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side:         THREE.DoubleSide,
   });
+  wallMat.shadowSide = THREE.DoubleSide;        // cast from both faces of the open cup
+  const capMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  capMat.shadowSide = THREE.DoubleSide;
+
+  // Open tapered cylinder (built once, instanced per pocket). CylinderGeometry
+  // is centered on the origin; top ring at +DEPTH/2, bottom ring at -DEPTH/2.
+  const wallGeo = new THREE.CylinderGeometry(HOLE_R, BOT_R, DEPTH, SEGS, RINGS, true);
+  {
+    const pos    = wallGeo.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      // t = 0 at the bottom (black), 1 at the lit mouth
+      const t = (pos.getY(i) + DEPTH / 2) / DEPTH;
+      // cubic ease -> lit band hugs the rim, shaft is black by ~1/3 depth down
+      const shade = LIP_SHADE * (t * t * t);
+      colors[i * 3] = colors[i * 3 + 1] = colors[i * 3 + 2] = shade;
+    }
+    wallGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  }
 
   for (const [px, pz] of POCKET_POSITIONS) {
-    // Draw each pocket mouth at its physics capture point (POCKET_POSITIONS in
-    // physics.js) so the hole and the catch zone always line up.
-    const vx = px;
-    const vz = pz;
-
-    // Dark disc flush with felt - pocket mouth
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(HOLE_R, 24), holeMat);
-    disc.rotation.x = -Math.PI / 2;
-    disc.position.set(vx, SY + 0.001, vz);
-    disc.name = 'pocket_disc';
-    group.add(disc);
-
-    // Tapered open cylinder - depth illusion when viewed at an angle
-    const cyl = new THREE.Mesh(
-      new THREE.CylinderGeometry(HOLE_R, HOLE_R * 0.75, DEPTH, 20, 1, true),
-      holeMat
-    );
-    cyl.position.set(vx, SY - DEPTH / 2, vz);
+    // Open tapered shaft - top edge flush with the felt so the inner walls are
+    // immediately visible at any view angle. The shaded gradient reads as depth.
+    // castShadow: the closed opaque cup blocks the overhead lamp/ceiling light
+    // from passing through the open hole and pooling on the floor below.
+    const cyl = new THREE.Mesh(wallGeo, wallMat);
+    cyl.position.set(px, SY - DEPTH / 2, pz);
+    cyl.castShadow    = true;
+    cyl.receiveShadow = false;
     cyl.name = 'pocket_cyl';
     group.add(cyl);
 
-    // Bottom cap so the pocket doesn't look hollow from steep angles
-    const cap = new THREE.Mesh(new THREE.CircleGeometry(HOLE_R * 0.75, 20), holeMat);
+    // Black bottom cap - seals the cup (so no light leaks through) and reads as
+    // a bottomless floor rather than a hollow can.
+    const cap = new THREE.Mesh(new THREE.CircleGeometry(BOT_R, SEGS), capMat);
     cap.rotation.x = -Math.PI / 2;
-    cap.position.set(vx, SY - DEPTH, vz);
+    cap.position.set(px, SY - DEPTH, pz);
+    cap.castShadow = true;
     cap.name = 'pocket_cap';
     group.add(cap);
-
   }
 }
 
