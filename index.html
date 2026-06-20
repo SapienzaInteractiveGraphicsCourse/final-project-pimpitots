@@ -49,21 +49,21 @@
       background: rgba(0, 0, 0, 0.70);
       backdrop-filter: blur(6px);
       border: 1px solid rgba(245, 215, 110, 0.25);
-      border-radius: 14px;
-      padding: 14px 22px;
+      border-radius: 18px;
+      padding: 18px 28px;
       pointer-events: none;
       user-select: none;
       line-height: 1.5;
       box-shadow: 0 0 20px rgba(245, 215, 110, 0.10), 0 4px 16px rgba(0,0,0,0.5);
     }
     #hud-level {
-      font-size: 23px;
+      font-size: 29px;
       font-weight: 900;
       color: #f5d76e;
       text-shadow: 0 0 14px rgba(245, 215, 110, 0.8), 0 0 30px rgba(245, 215, 110, 0.3);
       letter-spacing: 0.5px;
     }
-    #hud-balls { font-size: 16px; font-weight: 600; color: #ccc; margin-top: 3px; }
+    #hud-balls { font-size: 20px; font-weight: 600; color: #ccc; margin-top: 3px; }
 
 
 
@@ -326,7 +326,7 @@
       transform: scale(1.06);
     }
 
-    /* --- Controls legend — bottom-right --- */
+    /* --- Controls legend — bottom-right, togglable --- */
     #legend {
       position: fixed;
       bottom: 14px;
@@ -336,20 +336,31 @@
       border-radius: 12px;
       padding: 12px 18px;
       backdrop-filter: blur(4px);
-      pointer-events: none;
       user-select: none;
       font-size: 13px;
       font-weight: 600;
       color: #bbb;
     }
-    #legend b {
+    #btn-legend-toggle {
+      background: none;
+      border: none;
+      color: #eee;
       font-size: 13px;
       font-weight: 800;
-      color: #eee;
-      display: block;
-      margin-bottom: 8px;
+      font-family: inherit;
       letter-spacing: 0.5px;
+      cursor: pointer;
+      padding: 0;
+      display: block;
+      width: 100%;
+      text-align: left;
     }
+    #btn-legend-toggle:hover { color: #fff; }
+    #legend-content {
+      display: none;
+      margin-top: 8px;
+    }
+    #legend.open #legend-content { display: block; }
     #legend-grid {
       display: grid;
       grid-template-columns: auto auto;
@@ -370,7 +381,7 @@
     }
 
     /* ── Lives HUD ── */
-    #hud-lives { font-size: 18px; margin-top: 4px; min-height: 22px; letter-spacing: 2px; }
+    #hud-lives { font-size: 23px; margin-top: 4px; min-height: 22px; letter-spacing: 2px; }
 
     /* ── Difficulty card (slider) ── */
     .diff-card {
@@ -715,19 +726,22 @@
     </div>
   </div>
 
-  <!-- Controls legend — bottom-right -->
-  <div id="legend">
-    <b>Controls</b>
-    <div id="legend-grid">
-      <span><kbd>drag</kbd> Aim</span>
-      <span><kbd>hold</kbd> Charge</span>
-      <span><kbd>release</kbd> Shoot</span>
-      <span><kbd>scroll</kbd> Zoom (POV)</span>
-      <span><kbd>L</kbd> Lamp</span>
-      <span><kbd>M</kbd> Music</span>
-      <span><kbd>C / V</kbd> Camera</span>
-      <span><kbd>R</kbd> Reset</span>
-      <span><kbd>N</kbd> New config</span>
+  <!-- Controls legend — bottom-right, togglable -->
+  <div id="legend" class="open">
+    <button id="btn-legend-toggle">Controls ▾</button>
+    <div id="legend-content">
+      <div id="legend-grid">
+        <span><kbd>drag</kbd> Aim</span>
+        <span><kbd>hold</kbd> Charge</span>
+        <span><kbd>release</kbd> Shoot</span>
+        <span><kbd>scroll</kbd> Zoom (POV)</span>
+        <span><kbd>L</kbd> Lamp</span>
+        <span><kbd>O</kbd> Ceiling</span>
+        <span><kbd>M</kbd> Music</span>
+        <span><kbd>C / V</kbd> Camera</span>
+        <span><kbd>R</kbd> Reset</span>
+        <span><kbd>N</kbd> New config</span>
+      </div>
     </div>
   </div>
 

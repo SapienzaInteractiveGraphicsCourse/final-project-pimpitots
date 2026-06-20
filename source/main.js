@@ -932,6 +932,9 @@ function _bindUIButtons() {
   document.getElementById('btn-lamp').addEventListener('click', _toggleLamp);
   document.getElementById('btn-ceiling').addEventListener('click', _toggleCeiling);
   document.getElementById('btn-music').addEventListener('click', _toggleMusic);
+  document.getElementById('btn-legend-toggle').addEventListener('click', function() {
+    document.getElementById('legend').classList.toggle('open');
+  });
 
   document.addEventListener('click', function(e) {
     if (e.target.closest('button')) playClickSound();
