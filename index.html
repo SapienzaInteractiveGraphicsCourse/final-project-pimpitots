@@ -366,57 +366,112 @@
     /* ── Lives HUD ── */
     #hud-lives { font-size: 18px; margin-top: 4px; min-height: 22px; letter-spacing: 2px; }
 
-    /* ── Difficulty selection menu ── */
+    /* ── Difficulty card (slider) ── */
     .diff-card {
-      padding: 80px 60px 44px !important;
+      padding: 68px 56px 44px !important;
       min-width: 340px;
       position: relative;
       margin-top: 62px;
     }
+
+    /* Avatar circle — floats above the card top edge */
     .diff-avatar {
       position: absolute;
-      top: -62px; left: 50%; transform: translateX(-50%);
-      width: 114px; height: 114px; border-radius: 50%;
+      top: -62px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 114px;
+      height: 114px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      /* black inner ring + white outer ring */
       box-shadow: 0 0 0 4px #0a0a0a, 0 0 0 9px #fff, 0 10px 24px rgba(0,0,0,0.6);
-      overflow: visible;
+      overflow: visible; /* horns protrude above the circle */
     }
     #diff-face { display: block; width: 100%; height: 100%; overflow: visible; }
+
+    /* Big difficulty label */
     .diff-label {
-      font-size: 30px; font-weight: 900; letter-spacing: 3px;
-      color: #3aaa60; text-shadow: 0 0 18px rgba(58,170,96,0.7);
-      margin-bottom: 4px; transition: color 0.25s, text-shadow 0.25s;
+      font-size: 46px;
+      font-weight: 900;
+      text-align: center;
+      letter-spacing: 4px;
+      margin-bottom: 4px;
+      transition: color 0.35s ease;
+      text-shadow: 0 0 22px currentColor;
     }
-    .diff-sub { font-size: 15px; font-weight: 600; color: #888; margin-bottom: 24px; }
-    .diff-slider-wrap { width: 100%; margin-bottom: 6px; }
+    .diff-sub {
+      font-size: 15px;
+      font-weight: 600;
+      color: #888;
+      text-align: center;
+      margin-bottom: 28px;
+      letter-spacing: 1px;
+    }
+
+    /* Slider track + thumb */
+    .diff-slider-wrap { width: 100%; padding: 6px 0 4px; }
     .diff-slider {
-      -webkit-appearance: none; appearance: none;
-      width: 100%; height: 8px; border-radius: 4px; outline: none; cursor: pointer;
-      background: linear-gradient(90deg, #3aaa60, #e08030 50%, #9b2dc7);
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 28px;
+      border-radius: 14px;
+      border: 3px solid rgba(255,255,255,0.85);
+      outline: none;
+      cursor: pointer;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+      transition: border-color 0.35s ease;
+      /* background gradient set dynamically by JS */
     }
     .diff-slider::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 28px; height: 28px; border-radius: 50%; background: #fff;
-      box-shadow: 0 0 0 3px #333, 0 2px 8px rgba(0,0,0,0.5);
-      cursor: pointer; transition: transform 0.1s;
+      appearance: none;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: #fff;
+      cursor: grab;
+      box-shadow: 0 0 0 3px rgba(0,0,0,0.22), 0 4px 14px rgba(0,0,0,0.55);
+      transition: transform 0.12s ease;
     }
-    .diff-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+    .diff-slider:active::-webkit-slider-thumb { cursor: grabbing; transform: scale(1.14); }
+    .diff-slider::-moz-range-track {
+      height: 22px; border-radius: 11px;
+      border: 3px solid rgba(255,255,255,0.85);
+    }
     .diff-slider::-moz-range-thumb {
-      width: 28px; height: 28px; border-radius: 50%; background: #fff;
-      box-shadow: 0 0 0 3px #333, 0 2px 8px rgba(0,0,0,0.5);
-      border: none; cursor: pointer;
+      width: 50px; height: 50px; border-radius: 50%;
+      background: #fff; border: none; cursor: grab;
+      box-shadow: 0 0 0 3px rgba(0,0,0,0.22), 0 4px 14px rgba(0,0,0,0.55);
     }
-    .diff-hint { font-size: 12px !important; color: #555 !important; margin-bottom: 28px !important; }
-    .btn-play-diff {
+    .diff-slider::-moz-range-progress { border-radius: 11px; }
+
+    .diff-hint {
+      font-size: 13px !important;
+      color: #555 !important;
+      margin: 10px 0 22px !important;
+      letter-spacing: 0.3px;
+    }
+
+    /* Play button — full-width, color driven by JS inline style */
+    .overlay-card .btn-play-diff {
       width: 100%;
-      background: linear-gradient(135deg, #2a6e3f, #3aaa60);
-      color: #fff; border: 1px solid rgba(110,255,160,0.45); border-radius: 12px;
-      padding: 14px 60px; font-size: 18px; font-weight: 800; font-family: inherit;
-      cursor: pointer; letter-spacing: 1px; transition: all 0.15s ease;
-      box-shadow: 0 0 22px rgba(60,200,100,0.35);
+      border-radius: 14px;
+      padding: 17px !important;
+      font-size: 22px !important;
+      font-weight: 900 !important;
+      letter-spacing: 4px !important;
+      border: none !important;
+      color: #fff !important;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.45) !important;
+      transition: transform 0.15s ease, box-shadow 0.15s ease !important;
     }
-    .btn-play-diff:hover {
-      background: linear-gradient(135deg, #3a8e55, #4dcf78);
-      box-shadow: 0 0 36px rgba(60,200,100,0.60); transform: scale(1.04);
+    .overlay-card .btn-play-diff:hover {
+      transform: scale(1.05) !important;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.55) !important;
     }
 
     /* ── Game Over overlay ── */
@@ -645,7 +700,7 @@
       </div>
     </div>
     <div id="button-bar">
-      <button id="btn-newconfig">🎱 New Configuration</button>
+      <button id="btn-newconfig">🎱 Rearrage Balls</button>
       <button id="btn-reset">↺ Reset Game</button>
       <button id="btn-cam">👁 Player POV</button>
       <button id="btn-lamp">🌑 Lamp OFF</button>

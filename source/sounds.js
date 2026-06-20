@@ -13,8 +13,10 @@ let ballWallBuffer = null;
 let ballDropBuffer = null;
 let successBuffer  = null;
 let failBuffer     = null;
-let winBuffer      = null;
-let errorBuffer    = null;
+let winBuffer          = null;
+let errorBuffer        = null;
+let heartBrokenBuffer  = null;
+let clickBuffer        = null;
 
 export function initSounds() {
   bgMusic              = new Audio(_soundsBase + 'background.mp3');
@@ -37,7 +39,9 @@ export function initSounds() {
   _loadBuffer('success.mp3'  ).then(b => { successBuffer  = b; });
   _loadBuffer('fail.mp3'     ).then(b => { failBuffer     = b; });
   _loadBuffer('win.mp3'      ).then(b => { winBuffer      = b; });
-  _loadBuffer('error.mp3'    ).then(b => { errorBuffer    = b; });
+  _loadBuffer('error.mp3'      ).then(b => { errorBuffer       = b; });
+  _loadBuffer('heartBroken.mp3').then(b => { heartBrokenBuffer = b; });
+  _loadBuffer('click.mp3'      ).then(b => { clickBuffer       = b; });
 }
 
 function _loadBuffer(filename) {
@@ -97,7 +101,9 @@ export function playBallDropSound()      { _playBuffer(ballDropBuffer, 8); }
 export function playErrorSound()         { _playBuffer(errorBuffer,    4); }
 export function playSuccessSound()       { _playBuffer(successBuffer,  4); }
 export function playFailSound()          { _playBuffer(failBuffer,     4); }
-export function playWinSound()           { _playBuffer(winBuffer,      4); }
+export function playWinSound()           { _playBuffer(winBuffer,        4); }
+export function playHeartBrokenSound()   { _playBuffer(heartBrokenBuffer, 4); }
+export function playClickSound()         { _playBuffer(clickBuffer,        4); }
 
 export function playHitSound(power, maxPower) {
   if (!hitBuffer || !audioCtx) return;

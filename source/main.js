@@ -32,7 +32,7 @@ import { createRoom, createTable, createLamp, createCueStick, createBallMesh, cr
 import { generateTextures } from './textures.js';
 import { randomizeBalls, stepPhysics, isReadyForNextShot, snapToRest, TABLE_H, BALL_RADIUS } from './physics.js';
 import { Controls } from './controls.js';
-import { initSounds, startBgMusic, stopBgMusic, setMusicRate, setMusicDifficulty, playHitSound, playBallHitSound, playBallWallSound, playBallDropSound, playErrorSound, playSuccessSound, playFailSound, playWinSound } from './sounds.js';
+import { initSounds, startBgMusic, stopBgMusic, setMusicRate, setMusicDifficulty, playHitSound, playBallHitSound, playBallWallSound, playBallDropSound, playErrorSound, playSuccessSound, playFailSound, playWinSound, playHeartBrokenSound, playClickSound } from './sounds.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LEVELS_BALL_COUNT = [1, 2, 3, 4];  // colored balls per level (level N = index N-1)
@@ -387,12 +387,13 @@ function _newConfiguration() {
  * Called by the "Reset" button and R key.
  */
 function _resetGame() {
-  if (!difficultyChosen || gameOver || gameWon) return;
-  if (gameState === STATE.ROLLING || gameState === STATE.STRIKING) return;
-  gameWon     = false;
-  playerLives = maxLives;
-  if (overlayEl) overlayEl.style.display = 'none';
-  _startLevel(0);
+  if (_levelTransitionTimeout !== null) {
+    clearTimeout(_levelTransitionTimeout);
+    _levelTransitionTimeout = null;
+  }
+  gameOver = false;
+  gameWon  = false;
+  _showDifficultyMenu();
 }
 
 // ─── Cue Ball Respawn (after scratch) ────────────────────────────────────────
@@ -659,7 +660,9 @@ function animate() {
         ballsRemaining--;
         _updateHUD();
         if (ballsRemaining <= 0) {
-          _onLevelComplete();
+          gameState        = STATE.WAITING;
+          controls.enabled = false;
+          setTimeout(_onLevelComplete, 700);
           return; // rAF already queued; skip rest of this frame
         }
       }
@@ -898,6 +901,10 @@ function _bindUIButtons() {
   document.getElementById('btn-cam').addEventListener('click', _switchCamera);
   document.getElementById('btn-lamp').addEventListener('click', _toggleLamp);
   document.getElementById('btn-music').addEventListener('click', _toggleMusic);
+
+  document.addEventListener('click', function(e) {
+    if (e.target.closest('button')) playClickSound();
+  });
 }
 
 function _updateHUD() {
@@ -997,19 +1004,24 @@ function _showDifficultyMenu() {
   }
 
   function updateFace(v) {
-    const n = v / 2;
+    const n = v / 2;  // 0 = normal, 1 = insane
+
     const faceColor = twoSegColor('#3aaa60', '#e08030', '#9b2dc7', n);
     const hornColor = twoSegColor('#1e6e38', '#7a3008', '#5a1080', n);
-    const hornGrow  = clamp((n - 0.55) / 0.45, 0, 1);
-    const g = id => document.getElementById(id);
+
+    // Horns grow starting at n = 0.55
+    const hornGrow = clamp((n - 0.55) / 0.45, 0, 1);
+
+    const g = function(id) { return document.getElementById(id); };
 
     g('dh-bg').setAttribute('fill', faceColor);
 
     if (hornGrow > 0.001) {
-      const tipY   = (-50 - hornGrow * 44).toFixed(1);
-      const ctrlY  = (-42 - hornGrow * 22).toFixed(1);
+      const tipY  = (-50 - hornGrow * 44).toFixed(1);
+      const ctrlY = (-42 - hornGrow * 22).toFixed(1);
       const hornD_L = 'M -18 -47 L -38 ' + tipY + ' Q -58 ' + ctrlY + ' -32 -34 Z';
-      const hornD_R = 'M 18 -47 L 38 '   + tipY + ' Q 58 '  + ctrlY + ' 32 -34 Z';
+      const hornD_R = 'M 18 -47 L 38 '  + tipY + ' Q 58 '  + ctrlY + ' 32 -34 Z';
+
       g('dh-horn-l-bg').setAttribute('d', hornD_L);
       g('dh-horn-r-bg').setAttribute('d', hornD_R);
       g('dh-horn-l-bg').setAttribute('fill', hornColor);
@@ -1024,60 +1036,62 @@ function _showDifficultyMenu() {
     g('dh-horn-l').setAttribute('opacity', hornGrow.toFixed(3));
     g('dh-horn-r').setAttribute('opacity', hornGrow.toFixed(3));
 
-    const eyeRy    = twoSeg(8, 5, 2.5, n).toFixed(2);
+    // Eyes squint: ry 8 -> 2.5
+    var eyeRy = twoSeg(8, 5, 2.5, n).toFixed(2);
     g('dh-eye-l').setAttribute('ry', eyeRy);
     g('dh-eye-r').setAttribute('ry', eyeRy);
 
-    const eyeRyNum = parseFloat(eyeRy);
-    const shineR   = (eyeRyNum * 0.35).toFixed(2);
-    const shineCy  = (-4 - eyeRyNum * 0.60).toFixed(2);
+    // Shine scales proportionally with eye height; cy stays in upper portion of iris
+    var eyeRyNum = parseFloat(eyeRy);
+    var shineR  = (eyeRyNum * 0.35).toFixed(2);
+    var shineCy = (-4 - eyeRyNum * 0.60).toFixed(2);
     g('dh-shine-l').setAttribute('r',  shineR);
     g('dh-shine-r').setAttribute('r',  shineR);
     g('dh-shine-l').setAttribute('cy', shineCy);
     g('dh-shine-r').setAttribute('cy', shineCy);
 
-    const browOutY = twoSeg(-32, -30, -27, n).toFixed(1);
-    const browInnY = twoSeg(-32, -22, -13, n).toFixed(1);
+    // Eyebrows: outer stays, inner drops for angry V
+    var browOutY = twoSeg(-32, -30, -27, n).toFixed(1);
+    var browInnY = twoSeg(-32, -22, -13, n).toFixed(1);
     g('dh-brow-l').setAttribute('d', 'M -27 ' + browOutY + ' L -8 ' + browInnY);
     g('dh-brow-r').setAttribute('d', 'M  27 ' + browOutY + ' L  8 ' + browInnY);
 
-    const mouthCtrl = twoSeg(30, 14, 48, n).toFixed(1);
-    const mouthX    = twoSeg(24, 24, 36, n).toFixed(1);
+    // Mouth: gentle smile -> flat (angry mid) -> wide evil grin
+    var mouthCtrl = twoSeg(30, 14, 48, n).toFixed(1);
+    var mouthX    = twoSeg(24, 24, 36, n).toFixed(1);
     g('dh-mouth').setAttribute('d', 'M -' + mouthX + ' 16 Q 0 ' + mouthCtrl + ' ' + mouthX + ' 16');
 
-    const cheekOp = clamp(1 - n / 0.35, 0, 1).toFixed(3);
+    // Blush cheeks fade out as anger rises
+    var cheekOp = clamp(1 - n / 0.35, 0, 1).toFixed(3);
     g('dh-cheek-l').setAttribute('opacity', cheekOp);
     g('dh-cheek-r').setAttribute('opacity', cheekOp);
 
-    const labelColor = twoSegColor('#3aaa60', '#e08030', '#9b2dc7', n);
-    const glowColor  = twoSegColor('rgba(58,170,96,0.7)', 'rgba(224,128,48,0.7)', 'rgba(155,45,199,0.7)', n);
-    labelEl.style.color      = labelColor;
-    labelEl.style.textShadow = '0 0 18px ' + glowColor;
-    playBtn.style.background = 'linear-gradient(135deg, ' + twoSegColor('#2a6e3f', '#7a3008', '#5a1080', n) + ', ' + labelColor + ')';
-    playBtn.style.boxShadow  = '0 0 22px ' + glowColor;
-  }
+    // Slider track fill
+    var pct = (v / 2) * 100;
+    slider.style.background =
+      'linear-gradient(to right, ' + faceColor + ' 0%, ' + faceColor + ' ' + pct + '%, rgba(255,255,255,0.12) ' + pct + '%, rgba(255,255,255,0.12) 100%)';
 
-  function updateLabel(v) {
-    const d = DIFFS[Math.round(v)];
-    labelEl.textContent = d.label;
-    subEl.textContent   = d.lives + (d.lives === 1 ? ' life' : ' lives');
+    // Label / sub / button color
+    labelEl.style.color      = faceColor;
+    playBtn.style.background = faceColor;
+    var idx = Math.min(2, Math.round(v));
+    labelEl.textContent = DIFFS[idx].label;
+    var lives = DIFFS[idx].lives;
+    subEl.textContent = lives + (lives === 1 ? ' life' : ' lives');
   }
 
   updateFace(0);
-  updateLabel(0);
 
   slider.addEventListener('input', function() {
     const v = parseFloat(slider.value);
     updateFace(v);
-    updateLabel(v);
+    // Ramp playback rate from 1.0× (hard, v=1) up to 1.4× (insane, v=2); flat below v=1
     setMusicRate(v <= 1 ? 1.0 : 1.0 + (v - 1) * 0.4);
   });
 
   function snapSlider() {
-    const snapped = Math.round(parseFloat(slider.value));
-    slider.value = snapped;
-    updateFace(snapped);
-    updateLabel(snapped);
+    slider.value = Math.round(parseFloat(slider.value));
+    updateFace(parseFloat(slider.value));
   }
   slider.addEventListener('mouseup',  snapSlider);
   slider.addEventListener('touchend', snapSlider);
@@ -1103,7 +1117,6 @@ function _selectDifficulty(diff, lives) {
 // ─── Life System ─────────────────────────────────────────────────────────────
 
 function _loseLife() {
-  playErrorSound();
   const heartSpans  = hudLivesEl ? hudLivesEl.querySelectorAll('.heart') : [];
   const losingHeart = heartSpans[playerLives - 1];
 
@@ -1148,6 +1161,9 @@ function _loseLife() {
         setTimeout(() => document.body.classList.remove('screen-tremble'), 1000);
       }, 850);
 
+      // 65% of the 1700ms animation — heart starts rapidly expanding and fading
+      setTimeout(playHeartBrokenSound, 1105);
+
       setTimeout(() => {
         if (flyHeart.parentNode) flyHeart.parentNode.removeChild(flyHeart);
         playerLives = Math.max(0, playerLives - 1);
@@ -1156,7 +1172,8 @@ function _loseLife() {
       }, 1820);
 
     } else {
-      // Normal / hard: heart breaks in place
+      // Normal / hard: instant buzz then heart breaks in place
+      playErrorSound();
       losingHeart.classList.add('heart-lose');
 
       _lifeFlashEl.classList.remove('flash');
