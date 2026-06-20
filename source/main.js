@@ -38,8 +38,8 @@ import { initSounds, startBgMusic, stopBgMusic, setMusicRate, setMusicDifficulty
 const LEVELS_BALL_COUNT = [1, 2, 3, 4];  // colored balls per level (level N = index N-1)
 const NUM_LEVELS        = LEVELS_BALL_COUNT.length; // 4
 
-const LAMP_SWING_AMP   = 0;       // swing amplitude in radians
-const LAMP_SWING_SPEED = 0.0;    // swing frequency (rad/s)
+const LAMP_SWING_AMP   = 0.08;       // swing amplitude in radians
+const LAMP_SWING_SPEED = 0.6;    // swing frequency (rad/s)
 
 const CAM_DIST_BEHIND = 4.5;      // distance behind cue ball for player-POV camera
 const CAM_HEIGHT_POV  = 1.6;      // camera height above table for player POV

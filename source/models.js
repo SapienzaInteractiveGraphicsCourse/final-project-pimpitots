@@ -219,7 +219,7 @@ export function createRoom(scene, texMap) {
 
   // Diffuse moonlight coming through the window — a justified cool wash over the
   // window side of the room (boosted now that the lamp no longer floods the room).
-  const moonLight = new THREE.PointLight(0x8899cc, 0.15, 0, 0);
+  const moonLight = new THREE.PointLight(0x8899cc, 0.12, 0, 0);
   moonLight.position.set(WALL_X + 0.6, WIN_CY + 0.2, WIN_CZ);
   group.add(moonLight);
 
@@ -665,8 +665,8 @@ export function createLamp(scene) {
 
   // Emissive material — each bulb glows on its own regardless of incoming light.
   const bulbMat = new THREE.MeshStandardMaterial({
-    color:             0xfffde8,
-    emissive:          new THREE.Color(0xffffcc),
+    color:             0xffcc88,
+    emissive:          new THREE.Color(0xffaa44),
     emissiveIntensity: 2.0, // matches the value the lamp toggle restores on lamp-on
     roughness:         0.9,
     metalness:         0.0,
@@ -770,7 +770,7 @@ export function createLamp(scene) {
     // own opening yet is wide enough that the three pools overlap across the
     // felt — so every ball is lit enough to cast a readable shadow.
     const light = new THREE.SpotLight(
-      0xfff5e0,        // warm white
+      0xffaa44,        // warm amber
       2.2,             // intensity
       30,              // range
       Math.PI / 4.5,   // cone half-angle (~40°) — overlapping pools cover the whole felt
@@ -792,7 +792,7 @@ export function createLamp(scene) {
     light.shadow.mapSize.set(2048, 2048);   // higher res — the wide cone spreads the map over the whole table
     light.shadow.camera.near = 0.5;
     light.shadow.camera.far  = 12;          // bulb→floor is ~5.6 units; 12 leaves margin
-    light.shadow.bias        = -0.0004;     // avoid self-shadowing acne without detaching the contact shadow
+    light.shadow.bias        = -0.0001;     // avoid self-shadowing acne without detaching the contact shadow
     light.shadow.normalBias  = 0.0;         // MUST be 0 on the flat felt — any push detaches the ball's contact shadow
     light.shadow.radius      = 3;           // soft edges; blends the 2–3 overlapping cone shadows into one clean shadow
     light.userData.onIntensity = light.intensity; // remembered so the lamp toggle can restore it
