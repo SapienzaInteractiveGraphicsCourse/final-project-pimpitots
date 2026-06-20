@@ -1,49 +1,70 @@
-# 🎱 3D Pool Game: Interactive Graphics Project
+# 3D Pool Game - Interactive Graphics Project
 
 Sapienza University of Rome, Interactive Graphics course (Prof. Marco Schaerf), a.y. 2025/2026.
 
+By Francesco Pimpinelli & Leonardo Pitotti.
+
+---
 **Live demo (GitHub Pages):** https://sapienzainteractivegraphicscourse.github.io/final-project-pimpitots/
 
-## Running locally
 
-The project is a static site with no build step. Three.js (r128) is vendored locally in `libs/`, so no network access is required.
+## How to Play
 
-Serve the repo root with any static file server, e.g.:
+The goal is to pocket every colored ball in four progressively harder levels (1 ball → 2 → 3 → 4). Pocket them all on Level 4 and you win.
 
-```
-python -m http.server 7777
-```
+**Shooting:** press and hold on the canvas to charge power, release to fire. Drag while holding to aim instead while drag cancels the charge, so releasing after a drag won't accidentally shoot. 
 
-Then open the printed URL in a browser. Opening `index.html` directly via `file://` won't work: ES module imports need an HTTP origin.
+**Lives:** choose a difficulty before the match starts. You lose a heart whenever a shot pockets no colored ball. Run out of hearts and it's game over. Lives don't reset between levels.
 
-## 🎮 How to Play
-
-Drag to aim the cue, hold still to charge your shot, release to fire! 💥 Sink a ball by accident? No worries, the cue ball respawns if you scratch.
-
-Pocket every colored ball to clear a level. There are 4 levels, each one a bit tougher than the last. Beat them all and confetti rains down on your "YOU WIN!" screen 🎉
-
-Pick your difficulty before you start: Normal, Hard, or the dreaded Insane 😈 (one life, faster music, no mercy). Lose a heart ❤️ every time a shot doesn't pocket a colored ball. Run out of hearts and it's game over, but you can always jump back in.
-
-### Controls 🕹️
-
-| Key | Action |
+| Difficulty | Lives |
 |---|---|
-| Drag | Aim |
-| Hold | Charge power |
+| Normal | 5 |
+| Hard | 3 |
+| Insane | 1 |
+
+If the cue (white) ball is accidentally pocketed it respawns after a brief moment. The **Rearrange Balls** button reshuffles the current level without counting as a shot.
+
+### Controls
+
+**Mouse / keyboard**
+
+| Input | Action |
+|---|---|
+| Drag on canvas | Aim |
+| Press and hold | Charge power |
 | Release | Shoot |
-| Scroll | Zoom (Player POV) |
-| `L` | Table lamp 💡 |
-| `O` | Ceiling light |
-| `M` | Music 🎵 |
-| `C` / `V` | Switch camera |
-| `N` | New ball setup |
-| `R` | Reset |
+| Scroll wheel | Zoom (Player POV only) |
+| `C` / `V` | Switch camera (Overview or Player POV) |
+| `L` | Toggle table lamps |
+| `O` | Toggle ceiling light |
+| `M` | Toggle music |
+| `N` | Rearrange balls |
+| `R` | Reset game |
 
-Touch works too: tap and hold to charge, drag to aim, lift to shoot.
+**Touch**
 
-## Project structure
+| Gesture | Action |
+|---|---|
+| Tap and hold | Charge power |
+| Drag | Aim |
+| Lift | Shoot |
+| Pinch | Zoom (Player POV only) |
 
-- `index.html`: entry point, canvas element and `three` import map.
-- `main.js`: engine bootstrap (renderer, scene, camera, render loop).
-- `models.js`: Three.js geometry/material construction.
-- `libs/`: vendored third-party libraries (Three.js).
+All controls are also available as on-screen buttons.
+
+
+---
+
+## Libraries and external assets
+
+| Asset | Description |
+|---|---|
+| [Three.js r128](https://threejs.org) | WebGL rendering engine - integrated in `libs/three.module.js` |
+| [GLTFLoader](https://threejs.org/docs/#examples/en/loaders/GLTFLoader) | Three.js addon for loading GLB/glTF models - integrated in `libs/GLTFLoader.js` |
+| PBR texture sets | Floor, wall, wood, wood020 - loaded from `textures/` |
+| GLB scene assets | Lounge corner, coat rack, paintings, plant, door — authored in Blender, stored in `blender_assets/` |
+| Audio | MP3 effects and background music track - stored in `sounds/` |
+
+Three.js and GLTFLoader are the only code dependencies. Everything else is static assets; no package manager or build step is needed.
+
+---
