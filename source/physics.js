@@ -250,6 +250,10 @@ export function stepPhysics(balls, dt, onBallBall, onCushion) {
   const newlyPocketed = [];
   for (const ball of balls) {
     if (!ball.pocketed && _isInPocket(ball)) {
+      // Remember the speed at which the ball arrived so the renderer can scale
+      // the drop animation to the shot - a ball that reaches the pocket fast
+      // plunges in faster than one that just trickles over the edge.
+      ball.pocketSpeed = Math.sqrt(ball.vx * ball.vx + ball.vz * ball.vz);
       ball.pocketed = true;
       ball.vx = 0;
       ball.vz = 0;

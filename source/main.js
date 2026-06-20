@@ -99,8 +99,10 @@ const _ballScreenPos = new THREE.Vector3(); // scratch vector for cursor-targete
 // the ball has sunk out of sight.
 const pocketingBalls   = [];
 const POCKET_GRAVITY   = 12.0;                    // downward acceleration (scene units/s^2)
-const POCKET_SINK_EASE = 9.0;                     // horizontal ease toward the hole centre (1/s)
+const POCKET_SINK_EASE = 9.0;                     // base horizontal ease toward the hole centre (1/s)
 const POCKET_REST_Y    = TABLE_SURFACE_Y - 0.30;  // depth at which the ball is fully out of sight
+const POCKET_DROP_V0   = 1.5;                     // base initial downward speed (scaled by arrival speed)
+const POCKET_SPEED_REF = 5.0;                     // arrival speed that maps to a 1.0x drop factor
 
 // --- Gameplay State ---
 const STATE = {
@@ -595,11 +597,18 @@ function _nearestPocketCenter(x, z) {
 /** Begins a captured ball's fall-into-the-pocket animation (instead of hiding it). */
 function _startPocketDrop(ball) {
   const { px, pz } = _nearestPocketCenter(ball.x, ball.z);
+  // Scale the whole drop to how fast the ball arrived: a soft roll trickles in,
+  // a hard shot plunges. Clamped so a dead-slow ball still falls and a rocket
+  // doesn't teleport.
+  const speed = ball.pocketSpeed || 0;
+  const f     = Math.max(0.5, Math.min(2.5, speed / POCKET_SPEED_REF));
   pocketingBalls.push({
     mesh:        ball.mesh,
     isCueBall:   ball.isCueBall,
     px, pz,
-    vy:          0,
+    vy:          -POCKET_DROP_V0 * f,   // initial downward speed grows with the shot
+    ease:        POCKET_SINK_EASE * f,  // funnels to centre quicker on harder shots
+    spinRate:    6 * f,                 // and tumbles faster
     soundPlayed: false,
     // random tumble axis so the ball visibly rolls over as it disappears
     spinAxis:    new THREE.Vector3(Math.random() - 0.5, 0.2, Math.random() - 0.5).normalize(),
@@ -620,11 +629,11 @@ function _updatePocketing(dt) {
     p.vy -= POCKET_GRAVITY * dt;
     m.position.y += p.vy * dt;
 
-    const k = 1 - Math.exp(-POCKET_SINK_EASE * dt);
+    const k = 1 - Math.exp(-p.ease * dt);
     m.position.x += (p.px - m.position.x) * k;
     m.position.z += (p.pz - m.position.z) * k;
 
-    _dropQ.setFromAxisAngle(p.spinAxis, dt * 7);
+    _dropQ.setFromAxisAngle(p.spinAxis, dt * p.spinRate);
     m.quaternion.premultiply(_dropQ);
 
     // Sync the clunk to the visual: play it as the ball drops below the surface.

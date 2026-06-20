@@ -553,18 +553,19 @@ function _buildPockets(group, woodMat) {
   const RINGS   = 12;            // vertical subdivisions -> smooth shading gradient
 
   // The depth cue is a vertical brightness gradient down the inner wall: a faint
-  // lit lip at the felt edge fading FAST to pure black. We bake this into vertex
-  // colors and render it UNLIT (MeshBasicMaterial) so the gradient always shows,
-  // never washed out or blacked-out by the dim scene lighting. A steep falloff
-  // (cubic) keeps only the top rim lit so the cone's end is never perceptible -
-  // the whole lower shaft is solid black.
-  const LIP_SHADE = 0.16;  // grey value at the mouth (0..1) - the lit rim
-  const wallMat = new THREE.MeshBasicMaterial({
+  // lit lip at the felt edge fading FAST to near-black, baked into vertex colors.
+  // Rendered with a LIT material (MeshStandardMaterial) - so the holes are now
+  // light-sensitive: they brighten when the lamp/ceiling are switched on and
+  // darken when switched off, instead of being a fixed unlit black.
+  const LIP_SHADE = 0.16;  // base grey at the mouth (0..1) - modulated by the lights
+  const wallMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
+    roughness:    1.0,
+    metalness:    0.0,
     side:         THREE.DoubleSide,
   });
   wallMat.shadowSide = THREE.DoubleSide;        // cast from both faces of the open cup
-  const capMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  const capMat = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 1.0, metalness: 0.0 });
   capMat.shadowSide = THREE.DoubleSide;
 
   // Open tapered cylinder (built once, instanced per pocket). CylinderGeometry
@@ -576,7 +577,7 @@ function _buildPockets(group, woodMat) {
     for (let i = 0; i < pos.count; i++) {
       // t = 0 at the bottom (black), 1 at the lit mouth
       const t = (pos.getY(i) + DEPTH / 2) / DEPTH;
-      // cubic ease -> lit band hugs the rim, shaft is black by ~1/3 depth down
+      // cubic ease -> lit band hugs the rim, shaft is near-black by ~1/3 depth down
       const shade = LIP_SHADE * (t * t * t);
       colors[i * 3] = colors[i * 3 + 1] = colors[i * 3 + 2] = shade;
     }
